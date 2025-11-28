@@ -1,0 +1,73 @@
+frontend/src/App.test.js
+```javascript
+import React from 'react';
+import { render, screen } from '@testing-library/react';
+import App from './App';
+
+test('renders platform title', () => {
+  render(<App />);
+  expect(screen.getByText(/CEW Training Platform/i)).toBeInTheDocument();
+});
+```
+
+.github/workflows/ci.yml (CI — lint + unit tests + docker build)
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install backend deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
+      - name: Lint Python
+        run: |
+          flake8 backend || true
+      - name: Run backend tests
+        working-directory: backend
+        run: pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build --if-present
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test --if-present
+
+  docker-compose:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build docker-compose services
+        run: docker compose -f docker-compose.yml build --progress=plain
+```
+
+---
