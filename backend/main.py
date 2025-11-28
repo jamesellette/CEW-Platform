@@ -7,7 +7,7 @@ import uuid
 import json
 import yaml
 from pathlib import Path
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from auth import (
     User, Token, LoginRequest, UserCreate, UserRole,
@@ -29,6 +29,9 @@ from marketplace import (
 )
 from multi_user_sessions import (
     multi_user_manager, TeamRole, SessionType
+)
+from scheduling import (
+    exercise_scheduler, ScheduleStatus, RecurrenceType, RecurrenceSettings
 )
 from contextlib import asynccontextmanager
 
@@ -1991,3 +1994,354 @@ async def get_session_scores(
         "teams": [t.to_dict() for t in session.teams.values()],
         "objectives": [o.to_dict() for o in session.objectives]
     }
+
+
+# ============ Scheduling Endpoints ============
+
+class RecurrenceSettingsModel(BaseModel):
+    """Recurrence settings for a schedule."""
+    recurrence_type: str
+    interval: int = 1
+    days_of_week: List[int] = []
+    end_date: Optional[str] = None
+    max_occurrences: Optional[int] = None
+
+
+class CreateScheduleRequest(BaseModel):
+    """Request to create a scheduled exercise."""
+    title: str
+    description: str
+    scenario_id: str
+    scenario_name: str
+    start_time: str  # ISO format
+    end_time: str  # ISO format
+    participants: List[str] = []
+    notifications_enabled: bool = True
+    auto_provision: bool = True
+    auto_teardown: bool = True
+    recurrence: Optional[RecurrenceSettingsModel] = None
+    notes: str = ""
+
+
+class UpdateScheduleRequest(BaseModel):
+    """Request to update a scheduled exercise."""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    participants: Optional[List[str]] = None
+    notifications_enabled: Optional[bool] = None
+    auto_provision: Optional[bool] = None
+    auto_teardown: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+@app.post("/schedules")
+async def create_schedule(
+    request: CreateScheduleRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Create a new scheduled exercise."""
+    try:
+        start_time = datetime.fromisoformat(request.start_time.replace('Z', '+00:00'))
+        end_time = datetime.fromisoformat(request.end_time.replace('Z', '+00:00'))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid datetime format: {e}")
+
+    recurrence = None
+    if request.recurrence:
+        try:
+            recurrence_type = RecurrenceType(request.recurrence.recurrence_type)
+            end_date = None
+            if request.recurrence.end_date:
+                end_date = datetime.fromisoformat(
+                    request.recurrence.end_date.replace('Z', '+00:00')
+                )
+            recurrence = RecurrenceSettings(
+                recurrence_type=recurrence_type,
+                interval=request.recurrence.interval,
+                days_of_week=request.recurrence.days_of_week,
+                end_date=end_date,
+                max_occurrences=request.recurrence.max_occurrences
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid recurrence: {e}")
+
+    try:
+        schedule = exercise_scheduler.create_schedule(
+            title=request.title,
+            description=request.description,
+            scenario_id=request.scenario_id,
+            scenario_name=request.scenario_name,
+            created_by=current_user.username,
+            start_time=start_time,
+            end_time=end_time,
+            participants=request.participants,
+            notifications_enabled=request.notifications_enabled,
+            auto_provision=request.auto_provision,
+            auto_teardown=request.auto_teardown,
+            recurrence=recurrence,
+            notes=request.notes
+        )
+        return schedule.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/schedules")
+async def list_schedules(
+    status: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List scheduled exercises."""
+    schedule_status = ScheduleStatus(status) if status else None
+
+    from_dt = None
+    to_dt = None
+    if from_date:
+        from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+    if to_date:
+        to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+
+    # Non-admin users only see their own schedules
+    participant = None
+    if current_user.role == UserRole.TRAINEE:
+        participant = current_user.username
+
+    schedules = exercise_scheduler.list_schedules(
+        status=schedule_status,
+        participant=participant,
+        from_date=from_dt,
+        to_date=to_dt
+    )
+    return [s.to_dict() for s in schedules]
+
+
+@app.get("/schedules/upcoming")
+async def get_upcoming_schedules(
+    days: int = 7,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get upcoming scheduled exercises."""
+    schedules = exercise_scheduler.get_upcoming_schedules(days)
+
+    # Filter for trainees
+    if current_user.role == UserRole.TRAINEE:
+        schedules = [
+            s for s in schedules
+            if current_user.username in s.participants
+        ]
+
+    return [s.to_dict() for s in schedules]
+
+
+@app.get("/schedules/calendar/{year}/{month}")
+async def get_calendar_view(
+    year: int,
+    month: int,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get calendar view of schedules for a month."""
+    username = None
+    if current_user.role == UserRole.TRAINEE:
+        username = current_user.username
+
+    return exercise_scheduler.get_calendar_view(year, month, username)
+
+
+@app.get("/schedules/me")
+async def get_my_schedules(
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get schedules for the current user."""
+    schedules = exercise_scheduler.get_user_schedules(current_user.username)
+    return [s.to_dict() for s in schedules]
+
+
+@app.get("/schedules/{schedule_id}")
+async def get_schedule(
+    schedule_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get a scheduled exercise by ID."""
+    schedule = exercise_scheduler.get_schedule(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return schedule.to_dict()
+
+
+@app.put("/schedules/{schedule_id}")
+async def update_schedule(
+    schedule_id: str,
+    request: UpdateScheduleRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Update a scheduled exercise."""
+    schedule = exercise_scheduler.get_schedule(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    # Only creator or admin can update
+    if schedule.created_by != current_user.username and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    start_time = None
+    end_time = None
+    if request.start_time:
+        start_time = datetime.fromisoformat(request.start_time.replace('Z', '+00:00'))
+    if request.end_time:
+        end_time = datetime.fromisoformat(request.end_time.replace('Z', '+00:00'))
+
+    try:
+        updated = exercise_scheduler.update_schedule(
+            schedule_id=schedule_id,
+            title=request.title,
+            description=request.description,
+            start_time=start_time,
+            end_time=end_time,
+            participants=request.participants,
+            notifications_enabled=request.notifications_enabled,
+            auto_provision=request.auto_provision,
+            auto_teardown=request.auto_teardown,
+            notes=request.notes
+        )
+        return updated.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/schedules/{schedule_id}/cancel")
+async def cancel_schedule(
+    schedule_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Cancel a scheduled exercise."""
+    schedule = exercise_scheduler.get_schedule(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    if schedule.created_by != current_user.username and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    try:
+        updated = exercise_scheduler.cancel_schedule(schedule_id)
+        return updated.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/schedules/{schedule_id}")
+async def delete_schedule(
+    schedule_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Delete a scheduled exercise (admin only)."""
+    try:
+        if not exercise_scheduler.delete_schedule(schedule_id):
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        return {"message": "Schedule deleted"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/schedules/{schedule_id}/start")
+async def start_scheduled_exercise(
+    schedule_id: str,
+    lab_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Start a scheduled exercise."""
+    try:
+        schedule = exercise_scheduler.start_exercise(schedule_id, lab_id)
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        return schedule.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/schedules/{schedule_id}/complete")
+async def complete_scheduled_exercise(
+    schedule_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Mark a scheduled exercise as completed."""
+    schedule = exercise_scheduler.complete_exercise(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return schedule.to_dict()
+
+
+@app.post("/schedules/{schedule_id}/participants/{username}")
+async def add_schedule_participant(
+    schedule_id: str,
+    username: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Add a participant to a schedule."""
+    schedule = exercise_scheduler.add_participant(schedule_id, username)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return schedule.to_dict()
+
+
+@app.delete("/schedules/{schedule_id}/participants/{username}")
+async def remove_schedule_participant(
+    schedule_id: str,
+    username: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Remove a participant from a schedule."""
+    schedule = exercise_scheduler.remove_participant(schedule_id, username)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return schedule.to_dict()
+
+
+# ============ Notification Endpoints ============
+
+@app.get("/notifications")
+async def get_notifications(
+    unread_only: bool = False,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get notifications for the current user."""
+    notifications = exercise_scheduler.get_user_notifications(
+        username=current_user.username,
+        unread_only=unread_only,
+        limit=limit
+    )
+    return [n.to_dict() for n in notifications]
+
+
+@app.get("/notifications/unread-count")
+async def get_unread_notification_count(
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get count of unread notifications."""
+    count = exercise_scheduler.get_unread_count(current_user.username)
+    return {"unread_count": count}
+
+
+@app.post("/notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Mark a notification as read."""
+    notification = exercise_scheduler.mark_notification_read(notification_id)
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return notification.to_dict()
+
+
+@app.post("/notifications/read-all")
+async def mark_all_notifications_read(
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Mark all notifications as read."""
+    count = exercise_scheduler.mark_all_notifications_read(current_user.username)
+    return {"marked_read": count}

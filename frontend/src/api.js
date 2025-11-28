@@ -333,6 +333,55 @@ export const sessionApi = {
   getScores: (sessionId) => api.get(`/sessions/${sessionId}/scores`),
 };
 
+// Scheduling API - for scheduled exercises
+export const scheduleApi = {
+  // Schedule management
+  createSchedule: (data) => api.post('/schedules', data),
+
+  listSchedules: (status = null, fromDate = null, toDate = null) =>
+    api.get('/schedules', { params: { status, from_date: fromDate, to_date: toDate } }),
+
+  getSchedule: (scheduleId) => api.get(`/schedules/${scheduleId}`),
+
+  updateSchedule: (scheduleId, data) => api.put(`/schedules/${scheduleId}`, data),
+
+  cancelSchedule: (scheduleId) => api.post(`/schedules/${scheduleId}/cancel`),
+
+  deleteSchedule: (scheduleId) => api.delete(`/schedules/${scheduleId}`),
+
+  // Schedule lifecycle
+  startExercise: (scheduleId, labId) =>
+    api.post(`/schedules/${scheduleId}/start`, {}, { params: { lab_id: labId } }),
+
+  completeExercise: (scheduleId) => api.post(`/schedules/${scheduleId}/complete`),
+
+  // Participant management
+  addParticipant: (scheduleId, username) =>
+    api.post(`/schedules/${scheduleId}/participants/${username}`),
+
+  removeParticipant: (scheduleId, username) =>
+    api.delete(`/schedules/${scheduleId}/participants/${username}`),
+
+  // Views
+  getUpcoming: (days = 7) => api.get('/schedules/upcoming', { params: { days } }),
+
+  getCalendar: (year, month) => api.get(`/schedules/calendar/${year}/${month}`),
+
+  getMySchedules: () => api.get('/schedules/me'),
+};
+
+// Notification API - for schedule notifications
+export const notificationApi = {
+  getNotifications: (unreadOnly = false, limit = 50) =>
+    api.get('/notifications', { params: { unread_only: unreadOnly, limit } }),
+
+  getUnreadCount: () => api.get('/notifications/unread-count'),
+
+  markRead: (notificationId) => api.post(`/notifications/${notificationId}/read`),
+
+  markAllRead: () => api.post('/notifications/read-all'),
+};
+
 // Kill switch API
 export const killSwitchApi = {
   activate: () => api.post('/kill-switch'),
