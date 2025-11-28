@@ -1,14 +1,34 @@
 import React, { useState } from 'react';
 import ScenarioList from './components/ScenarioList';
 import ScenarioEditor from './components/ScenarioEditor';
+import TopologySelector from './components/TopologySelector';
 
 export default function App() {
-  const [view, setView] = useState('list'); // 'list' or 'editor'
+  const [view, setView] = useState('list'); // 'list', 'editor', or 'topologies'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const handleCreateNew = () => {
     setEditingScenario(null);
+    setView('editor');
+  };
+
+  const handleCreateFromTemplate = () => {
+    setView('topologies');
+  };
+
+  const handleTemplateSelect = (template) => {
+    // Create a new scenario pre-populated with template data
+    setEditingScenario({
+      name: template.name + ' Scenario',
+      description: template.description,
+      topology: {
+        nodes: template.nodes,
+        networks: template.networks,
+        rf_environment: template.rf_environment,
+      },
+      constraints: template.constraints,
+    });
     setView('editor');
   };
 
@@ -38,11 +58,14 @@ export default function App() {
       </header>
 
       <main style={mainStyle}>
-        {view === 'list' ? (
+        {view === 'list' && (
           <>
             <div style={{ marginBottom: '16px' }}>
               <button onClick={handleCreateNew} style={btnPrimaryStyle}>
                 + Create New Scenario
+              </button>
+              <button onClick={handleCreateFromTemplate} style={btnSecondaryStyle}>
+                📋 Use Template
               </button>
             </div>
             <ScenarioList
@@ -50,10 +73,17 @@ export default function App() {
               refreshTrigger={refreshTrigger}
             />
           </>
-        ) : (
+        )}
+        {view === 'editor' && (
           <ScenarioEditor
             scenario={editingScenario}
             onSave={handleSave}
+            onCancel={handleCancel}
+          />
+        )}
+        {view === 'topologies' && (
+          <TopologySelector
+            onSelect={handleTemplateSelect}
             onCancel={handleCancel}
           />
         )}
@@ -96,6 +126,17 @@ const footerStyle = {
 const btnPrimaryStyle = {
   padding: '10px 20px',
   backgroundColor: '#28a745',
+  color: 'white',
+  border: 'none',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  fontSize: '14px',
+  marginRight: '10px',
+};
+
+const btnSecondaryStyle = {
+  padding: '10px 20px',
+  backgroundColor: '#17a2b8',
   color: 'white',
   border: 'none',
   borderRadius: '4px',

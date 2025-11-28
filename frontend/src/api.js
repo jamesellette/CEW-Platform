@@ -17,4 +17,9 @@ export const scenarioApi = {
   delete: (id) => api.delete(`/scenarios/${id}`),
 };
 
+export const topologyApi = {
+  list: () => api.get('/topologies'),
+  get: (filename) => api.get(`/topologies/${filename}`),
+};
+
 export default api;

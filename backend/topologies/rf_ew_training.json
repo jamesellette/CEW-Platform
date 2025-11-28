@@ -1,0 +1,61 @@
+{
+  "name": "RF/EW Training Environment",
+  "description": "Radio Frequency and Electronic Warfare training topology with SDR nodes",
+  "nodes": [
+    {
+      "id": "sdr-attacker",
+      "type": "sdr",
+      "image": "gnuradio:latest",
+      "hostname": "ew-station-1",
+      "network": "control-network",
+      "ip": "10.10.0.10",
+      "capabilities": ["transmit", "receive", "jamming-sim"]
+    },
+    {
+      "id": "sdr-target",
+      "type": "sdr",
+      "image": "gnuradio:latest",
+      "hostname": "target-comms",
+      "network": "control-network",
+      "ip": "10.10.0.20",
+      "capabilities": ["transmit", "receive"]
+    },
+    {
+      "id": "spectrum-analyzer",
+      "type": "monitor",
+      "image": "gqrx:latest",
+      "hostname": "spectrum-mon",
+      "network": "control-network",
+      "ip": "10.10.0.30",
+      "capabilities": ["receive", "analyze"]
+    },
+    {
+      "id": "controller",
+      "type": "host",
+      "image": "ubuntu:22.04",
+      "hostname": "ew-controller",
+      "network": "control-network",
+      "ip": "10.10.0.1"
+    }
+  ],
+  "networks": [
+    {
+      "name": "control-network",
+      "subnet": "10.10.0.0/24",
+      "isolated": true,
+      "description": "Control and coordination network"
+    }
+  ],
+  "rf_environment": {
+    "center_frequency_mhz": 915,
+    "bandwidth_mhz": 10,
+    "simulated": true,
+    "description": "Simulated RF environment - no actual RF emissions"
+  },
+  "constraints": {
+    "allow_external_network": false,
+    "allow_real_rf": false,
+    "max_nodes": 10,
+    "timeout_minutes": 90
+  }
+}

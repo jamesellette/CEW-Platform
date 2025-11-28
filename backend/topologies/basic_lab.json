@@ -1,0 +1,47 @@
+{
+  "name": "Basic Lab Network",
+  "description": "A simple isolated lab network for training with attacker and target hosts",
+  "nodes": [
+    {
+      "id": "attacker-1",
+      "type": "host",
+      "image": "kali-linux:latest",
+      "hostname": "attacker",
+      "network": "lab-network",
+      "ip": "10.0.0.10"
+    },
+    {
+      "id": "target-1",
+      "type": "host",
+      "image": "ubuntu:22.04",
+      "hostname": "target",
+      "network": "lab-network",
+      "ip": "10.0.0.20"
+    },
+    {
+      "id": "router-1",
+      "type": "router",
+      "image": "vyos:latest",
+      "hostname": "router",
+      "networks": ["lab-network", "dmz-network"],
+      "ip": "10.0.0.1"
+    }
+  ],
+  "networks": [
+    {
+      "name": "lab-network",
+      "subnet": "10.0.0.0/24",
+      "isolated": true
+    },
+    {
+      "name": "dmz-network",
+      "subnet": "10.0.1.0/24",
+      "isolated": true
+    }
+  ],
+  "constraints": {
+    "allow_external_network": false,
+    "max_nodes": 10,
+    "timeout_minutes": 60
+  }
+}

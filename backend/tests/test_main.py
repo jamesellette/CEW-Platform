@@ -65,6 +65,17 @@ def test_create_scenario_external_network_blocked():
     assert "External network access disabled" in r.json()["detail"]
 
 
+def test_create_scenario_real_rf_blocked():
+    db.clear()
+    scenario_data = {
+        "name": "RF Test",
+        "constraints": {"allow_real_rf": True}
+    }
+    r = client.post("/scenarios", json=scenario_data)
+    assert r.status_code == 400
+    assert "Real RF transmission disabled" in r.json()["detail"]
+
+
 def test_update_scenario():
     db.clear()
     # Create a scenario first
@@ -146,3 +157,64 @@ def test_delete_scenario_not_found():
     db.clear()
     r = client.delete("/scenarios/nonexistent-id")
     assert r.status_code == 404
+
+
+# ============ Topology Template Tests ============
+
+def test_list_topologies():
+    r = client.get("/topologies")
+    assert r.status_code == 200
+    templates = r.json()
+    assert isinstance(templates, list)
+    # Should have at least the sample topologies
+    assert len(templates) >= 3
+    # Verify structure
+    for t in templates:
+        assert "filename" in t
+        assert "name" in t
+        assert "description" in t
+        assert "node_count" in t
+        assert "networks" in t
+
+
+def test_get_topology_basic_lab():
+    r = client.get("/topologies/basic_lab.json")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["name"] == "Basic Lab Network"
+    assert "nodes" in data
+    assert "networks" in data
+    assert data["constraints"]["allow_external_network"] is False
+
+
+def test_get_topology_enterprise():
+    r = client.get("/topologies/enterprise_network.json")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["name"] == "Multi-Segment Enterprise Network"
+    assert len(data["nodes"]) >= 5
+
+
+def test_get_topology_rf_ew():
+    r = client.get("/topologies/rf_ew_training.json")
+    assert r.status_code == 200
+    data = r.json()
+    assert "rf_environment" in data
+    assert data["constraints"]["allow_real_rf"] is False
+
+
+def test_get_topology_not_found():
+    r = client.get("/topologies/nonexistent.json")
+    assert r.status_code == 404
+
+
+def test_get_topology_path_traversal_blocked():
+    # Test various path traversal attempts
+    r = client.get("/topologies/..%2Fmain.py")
+    assert r.status_code in [400, 404]  # Either blocked or not found is acceptable
+
+    r = client.get("/topologies/test..json")
+    assert r.status_code == 400  # Blocked because it contains ..
+
+    # The actual path traversal protection is in the code
+    # This verifies the endpoint doesn't expose parent directories

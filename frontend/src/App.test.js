@@ -11,6 +11,10 @@ jest.mock('./api', () => ({
     update: jest.fn(),
     delete: jest.fn(),
   },
+  topologyApi: {
+    list: jest.fn().mockResolvedValue({ data: [] }),
+    get: jest.fn(),
+  },
 }));
 
 test('renders platform title', async () => {
@@ -25,6 +29,14 @@ test('renders platform title', async () => {
 test('renders create scenario button', async () => {
   render(<App />);
   expect(screen.getByText(/Create New Scenario/i)).toBeInTheDocument();
+  await waitFor(() => {
+    expect(screen.queryByText(/Loading/i)).not.toBeInTheDocument();
+  });
+});
+
+test('renders use template button', async () => {
+  render(<App />);
+  expect(screen.getByText(/Use Template/i)).toBeInTheDocument();
   await waitFor(() => {
     expect(screen.queryByText(/Loading/i)).not.toBeInTheDocument();
   });
