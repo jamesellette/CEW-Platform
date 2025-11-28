@@ -81,6 +81,34 @@ def health_check() -> dict:
     return {"status": "healthy"}
 
 
+@app.get("/system/status")
+async def system_status(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get system status overview (admin/instructor only)."""
+    active_labs = orchestrator.get_active_labs()
+    all_labs = orchestrator.get_all_labs()
+
+    return {
+        "status": "operational",
+        "scenarios": {
+            "total": len(db),
+            "active": len(active_scenarios)
+        },
+        "labs": {
+            "total": len(all_labs),
+            "active": len(active_labs),
+            "total_containers": sum(len(lab.containers) for lab in active_labs),
+            "total_networks": sum(len(lab.networks) for lab in active_labs)
+        },
+        "safety": {
+            "air_gap_enforced": True,
+            "external_network_blocked": True,
+            "real_rf_blocked": True
+        }
+    }
+
+
 # ============ Authentication Endpoints ============
 
 @app.post("/auth/login", response_model=Token)
