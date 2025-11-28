@@ -26,6 +26,12 @@ jest.mock('./api', () => ({
     list: jest.fn().mockResolvedValue({ data: [] }),
     get: jest.fn(),
   },
+  labApi: {
+    list: jest.fn().mockResolvedValue({ data: [] }),
+    listActive: jest.fn().mockResolvedValue({ data: [] }),
+    get: jest.fn(),
+    stop: jest.fn(),
+  },
   authApi: {
     getUser: jest.fn(),
     getToken: jest.fn(),

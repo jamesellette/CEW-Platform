@@ -57,6 +57,14 @@ export const topologyApi = {
   get: (filename) => api.get(`/topologies/${filename}`),
 };
 
+// Lab API - for detailed lab management
+export const labApi = {
+  list: () => api.get('/labs'),
+  listActive: () => api.get('/labs/active'),
+  get: (labId) => api.get(`/labs/${labId}`),
+  stop: (labId) => api.post(`/labs/${labId}/stop`),
+};
+
 // Kill switch API
 export const killSwitchApi = {
   activate: () => api.post('/kill-switch'),
