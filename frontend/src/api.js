@@ -382,6 +382,64 @@ export const notificationApi = {
   markAllRead: () => api.post('/notifications/read-all'),
 };
 
+// Topology Editor API - for visual network topology building
+export const topologyApi = {
+  // Topology management
+  createTopology: (name, description, metadata = null) =>
+    api.post('/topology-editor', { name, description, metadata }),
+
+  listTopologies: () => api.get('/topology-editor'),
+
+  getTopology: (topologyId) => api.get(`/topology-editor/${topologyId}`),
+
+  updateTopology: (topologyId, name, description, metadata = null) =>
+    api.put(`/topology-editor/${topologyId}`, { name, description, metadata }),
+
+  deleteTopology: (topologyId) => api.delete(`/topology-editor/${topologyId}`),
+
+  cloneTopology: (topologyId, newName) =>
+    api.post(`/topology-editor/${topologyId}/clone`, {}, { params: { new_name: newName } }),
+
+  // Node management
+  addNode: (topologyId, data) => api.post(`/topology-editor/${topologyId}/nodes`, data),
+
+  updateNode: (topologyId, nodeId, data) =>
+    api.put(`/topology-editor/${topologyId}/nodes/${nodeId}`, data),
+
+  deleteNode: (topologyId, nodeId) =>
+    api.delete(`/topology-editor/${topologyId}/nodes/${nodeId}`),
+
+  moveNode: (topologyId, nodeId, x, y) =>
+    api.post(`/topology-editor/${topologyId}/nodes/${nodeId}/move`, {}, { params: { x, y } }),
+
+  // Connection management
+  addConnection: (topologyId, data) =>
+    api.post(`/topology-editor/${topologyId}/connections`, data),
+
+  deleteConnection: (topologyId, connectionId) =>
+    api.delete(`/topology-editor/${topologyId}/connections/${connectionId}`),
+
+  // Subnet management
+  addSubnet: (topologyId, data) => api.post(`/topology-editor/${topologyId}/subnets`, data),
+
+  deleteSubnet: (topologyId, subnetId) =>
+    api.delete(`/topology-editor/${topologyId}/subnets/${subnetId}`),
+
+  // Validation and export
+  validateTopology: (topologyId) => api.get(`/topology-editor/${topologyId}/validate`),
+
+  exportTopology: (topologyId, format = 'json') =>
+    api.get(`/topology-editor/${topologyId}/export`, { params: { format } }),
+
+  importTopology: (name, content, format = 'json') =>
+    api.post('/topology-editor/import', { name, content, format }),
+
+  // Type references
+  getNodeTypes: () => api.get('/topology-editor/node-types'),
+
+  getConnectionTypes: () => api.get('/topology-editor/connection-types'),
+};
+
 // Kill switch API
 export const killSwitchApi = {
   activate: () => api.post('/kill-switch'),

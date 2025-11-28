@@ -33,6 +33,9 @@ from multi_user_sessions import (
 from scheduling import (
     exercise_scheduler, ScheduleStatus, RecurrenceType, RecurrenceSettings
 )
+from topology_editor import (
+    topology_editor, NodeType, ConnectionType, ValidationSeverity
+)
 from contextlib import asynccontextmanager
 
 
@@ -2345,3 +2348,426 @@ async def mark_all_notifications_read(
     """Mark all notifications as read."""
     count = exercise_scheduler.mark_all_notifications_read(current_user.username)
     return {"marked_read": count}
+
+
+# ============ Topology Editor Endpoints ============
+
+
+class CreateTopologyRequest(BaseModel):
+    """Request to create a new topology."""
+    name: str
+    description: str
+    metadata: Optional[dict] = None
+
+
+class AddNodeRequest(BaseModel):
+    """Request to add a node."""
+    name: str
+    node_type: str
+    x: float
+    y: float
+    image: str = "alpine:latest"
+    ip_addresses: List[str] = []
+    properties: Optional[dict] = None
+    ports: List[str] = []
+    labels: Optional[dict] = None
+
+
+class UpdateNodeRequest(BaseModel):
+    """Request to update a node."""
+    name: Optional[str] = None
+    node_type: Optional[str] = None
+    x: Optional[float] = None
+    y: Optional[float] = None
+    image: Optional[str] = None
+    ip_addresses: Optional[List[str]] = None
+    properties: Optional[dict] = None
+    ports: Optional[List[str]] = None
+    labels: Optional[dict] = None
+
+
+class AddConnectionRequest(BaseModel):
+    """Request to add a connection."""
+    source_node_id: str
+    target_node_id: str
+    connection_type: str = "ethernet"
+    source_port: Optional[str] = None
+    target_port: Optional[str] = None
+    bandwidth: Optional[str] = None
+    latency: Optional[int] = None
+    properties: Optional[dict] = None
+    labels: Optional[dict] = None
+
+
+class AddSubnetRequest(BaseModel):
+    """Request to add a subnet."""
+    name: str
+    cidr: str
+    vlan_id: Optional[int] = None
+    gateway: Optional[str] = None
+    dns_servers: List[str] = []
+    properties: Optional[dict] = None
+
+
+class ImportTopologyRequest(BaseModel):
+    """Request to import a topology."""
+    name: str
+    content: str
+    format: str = "json"
+
+
+@app.post("/topology-editor")
+async def create_topology(
+    request: CreateTopologyRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Create a new topology."""
+    topology = topology_editor.create_topology(
+        name=request.name,
+        description=request.description,
+        created_by=current_user.username,
+        metadata=request.metadata
+    )
+    return topology.to_dict()
+
+
+@app.get("/topology-editor")
+async def list_editor_topologies(
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List topologies."""
+    # Trainees only see their own topologies
+    created_by = None
+    if current_user.role == UserRole.TRAINEE:
+        created_by = current_user.username
+
+    topologies = topology_editor.list_topologies(created_by=created_by)
+    return [t.to_dict() for t in topologies]
+
+
+@app.get("/topology-editor/node-types")
+async def get_node_types(
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get available node types."""
+    return [
+        {"value": nt.value, "name": nt.value.replace("_", " ").title()}
+        for nt in NodeType
+    ]
+
+
+@app.get("/topology-editor/connection-types")
+async def get_connection_types(
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get available connection types."""
+    return [
+        {"value": ct.value, "name": ct.value.replace("_", " ").title()}
+        for ct in ConnectionType
+    ]
+
+
+@app.get("/topology-editor/{topology_id}")
+async def get_editor_topology(
+    topology_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get a topology by ID."""
+    topology = topology_editor.get_topology(topology_id)
+    if not topology:
+        raise HTTPException(status_code=404, detail="Topology not found")
+    return topology.to_dict()
+
+
+@app.put("/topology-editor/{topology_id}")
+async def update_editor_topology(
+    topology_id: str,
+    request: CreateTopologyRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Update a topology."""
+    topology = topology_editor.update_topology(
+        topology_id=topology_id,
+        name=request.name,
+        description=request.description,
+        metadata=request.metadata
+    )
+    if not topology:
+        raise HTTPException(status_code=404, detail="Topology not found")
+    return topology.to_dict()
+
+
+@app.delete("/topology-editor/{topology_id}")
+async def delete_topology(
+    topology_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Delete a topology."""
+    if not topology_editor.delete_topology(topology_id):
+        raise HTTPException(status_code=404, detail="Topology not found")
+    return {"message": "Topology deleted"}
+
+
+@app.post("/topology-editor/{topology_id}/clone")
+async def clone_topology(
+    topology_id: str,
+    new_name: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Clone a topology."""
+    clone = topology_editor.clone_topology(
+        topology_id=topology_id,
+        new_name=new_name,
+        created_by=current_user.username
+    )
+    if not clone:
+        raise HTTPException(status_code=404, detail="Topology not found")
+    return clone.to_dict()
+
+
+@app.post("/topology-editor/{topology_id}/nodes")
+async def add_node(
+    topology_id: str,
+    request: AddNodeRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Add a node to a topology."""
+    try:
+        node_type = NodeType(request.node_type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid node type")
+
+    node = topology_editor.add_node(
+        topology_id=topology_id,
+        name=request.name,
+        node_type=node_type,
+        x=request.x,
+        y=request.y,
+        image=request.image,
+        ip_addresses=request.ip_addresses,
+        properties=request.properties,
+        ports=request.ports,
+        labels=request.labels
+    )
+    if not node:
+        raise HTTPException(status_code=404, detail="Topology not found")
+    return node.to_dict()
+
+
+@app.put("/topology-editor/{topology_id}/nodes/{node_id}")
+async def update_node(
+    topology_id: str,
+    node_id: str,
+    request: UpdateNodeRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Update a node."""
+    node_type = None
+    if request.node_type:
+        try:
+            node_type = NodeType(request.node_type)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid node type")
+
+    node = topology_editor.update_node(
+        topology_id=topology_id,
+        node_id=node_id,
+        name=request.name,
+        node_type=node_type,
+        x=request.x,
+        y=request.y,
+        image=request.image,
+        ip_addresses=request.ip_addresses,
+        properties=request.properties,
+        ports=request.ports,
+        labels=request.labels
+    )
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    return node.to_dict()
+
+
+@app.delete("/topology-editor/{topology_id}/nodes/{node_id}")
+async def delete_node(
+    topology_id: str,
+    node_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Delete a node."""
+    if not topology_editor.delete_node(topology_id, node_id):
+        raise HTTPException(status_code=404, detail="Node not found")
+    return {"message": "Node deleted"}
+
+
+@app.post("/topology-editor/{topology_id}/nodes/{node_id}/move")
+async def move_node(
+    topology_id: str,
+    node_id: str,
+    x: float,
+    y: float,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Move a node to a new position."""
+    node = topology_editor.move_node(topology_id, node_id, x, y)
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    return node.to_dict()
+
+
+@app.post("/topology-editor/{topology_id}/connections")
+async def add_connection(
+    topology_id: str,
+    request: AddConnectionRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Add a connection between nodes."""
+    try:
+        conn_type = ConnectionType(request.connection_type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid connection type")
+
+    try:
+        connection = topology_editor.add_connection(
+            topology_id=topology_id,
+            source_node_id=request.source_node_id,
+            target_node_id=request.target_node_id,
+            connection_type=conn_type,
+            source_port=request.source_port,
+            target_port=request.target_port,
+            bandwidth=request.bandwidth,
+            latency=request.latency,
+            properties=request.properties,
+            labels=request.labels
+        )
+        if not connection:
+            raise HTTPException(status_code=404, detail="Topology not found")
+        return connection.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/topology-editor/{topology_id}/connections/{connection_id}")
+async def delete_connection(
+    topology_id: str,
+    connection_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Delete a connection."""
+    if not topology_editor.delete_connection(topology_id, connection_id):
+        raise HTTPException(status_code=404, detail="Connection not found")
+    return {"message": "Connection deleted"}
+
+
+@app.post("/topology-editor/{topology_id}/subnets")
+async def add_subnet(
+    topology_id: str,
+    request: AddSubnetRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Add a subnet to a topology."""
+    subnet = topology_editor.add_subnet(
+        topology_id=topology_id,
+        name=request.name,
+        cidr=request.cidr,
+        vlan_id=request.vlan_id,
+        gateway=request.gateway,
+        dns_servers=request.dns_servers,
+        properties=request.properties
+    )
+    if not subnet:
+        raise HTTPException(status_code=404, detail="Topology not found")
+    return subnet.to_dict()
+
+
+@app.delete("/topology-editor/{topology_id}/subnets/{subnet_id}")
+async def delete_subnet(
+    topology_id: str,
+    subnet_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Delete a subnet."""
+    if not topology_editor.delete_subnet(topology_id, subnet_id):
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    return {"message": "Subnet deleted"}
+
+
+@app.get("/topology-editor/{topology_id}/validate")
+async def validate_topology(
+    topology_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Validate a topology and return any issues."""
+    issues = topology_editor.validate_topology(topology_id)
+    errors = [i for i in issues if i.severity == ValidationSeverity.ERROR]
+    warnings = [i for i in issues if i.severity == ValidationSeverity.WARNING]
+
+    return {
+        "valid": len(errors) == 0,
+        "error_count": len(errors),
+        "warning_count": len(warnings),
+        "issues": [i.to_dict() for i in issues]
+    }
+
+
+@app.get("/topology-editor/{topology_id}/export")
+async def export_topology(
+    topology_id: str,
+    format: str = "json",
+    current_user: User = Depends(get_current_user)
+) -> Response:
+    """Export a topology in various formats."""
+    if format == "json":
+        content = topology_editor.export_json(topology_id)
+        media_type = "application/json"
+    elif format == "yaml":
+        content = topology_editor.export_yaml(topology_id)
+        media_type = "application/x-yaml"
+    elif format == "graphviz":
+        content = topology_editor.export_graphviz(topology_id)
+        media_type = "text/plain"
+    elif format == "scenario":
+        result = topology_editor.export_scenario(topology_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="Topology not found")
+        return result
+    else:
+        raise HTTPException(status_code=400, detail="Invalid format")
+
+    if not content:
+        raise HTTPException(status_code=404, detail="Topology not found")
+
+    topology = topology_editor.get_topology(topology_id)
+    filename = f"{topology.name}.{format}" if topology else f"topology.{format}"
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@app.post("/topology-editor/import")
+async def import_topology(
+    request: ImportTopologyRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Import a topology from JSON or YAML."""
+    try:
+        if request.format == "json":
+            topology = topology_editor.import_json(
+                json_content=request.content,
+                name=request.name,
+                created_by=current_user.username
+            )
+        elif request.format == "yaml":
+            topology = topology_editor.import_yaml(
+                yaml_content=request.content,
+                name=request.name,
+                created_by=current_user.username
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Invalid format")
+
+        return topology.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
