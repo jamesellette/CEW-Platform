@@ -717,24 +717,31 @@ class Orchestrator:
                 )
                 stats = docker_container.stats(stream=False)
 
-                # Calculate CPU percentage
-                cpu_delta = (
-                    stats["cpu_stats"]["cpu_usage"]["total_usage"] -
-                    stats["precpu_stats"]["cpu_usage"]["total_usage"]
-                )
-                system_delta = (
-                    stats["cpu_stats"]["system_cpu_usage"] -
-                    stats["precpu_stats"]["system_cpu_usage"]
-                )
+                # Calculate CPU percentage with safety checks
                 cpu_percent = 0.0
-                if system_delta > 0:
-                    cpu_count = stats["cpu_stats"]["online_cpus"]
-                    cpu_percent = (cpu_delta / system_delta) * cpu_count * 100.0
+                try:
+                    cpu_stats = stats.get("cpu_stats", {})
+                    precpu_stats = stats.get("precpu_stats", {})
 
-                # Calculate memory usage
+                    # Handle potential missing or empty stats
+                    current_usage = cpu_stats.get("cpu_usage", {}).get("total_usage", 0)
+                    prev_usage = precpu_stats.get("cpu_usage", {}).get("total_usage", 0)
+                    system_usage = cpu_stats.get("system_cpu_usage", 0)
+                    prev_system_usage = precpu_stats.get("system_cpu_usage", 0)
+
+                    cpu_delta = current_usage - prev_usage
+                    system_delta = system_usage - prev_system_usage
+
+                    if system_delta > 0 and cpu_delta >= 0:
+                        cpu_count = cpu_stats.get("online_cpus", 1)
+                        cpu_percent = (cpu_delta / system_delta) * cpu_count * 100.0
+                except (KeyError, TypeError, ZeroDivisionError):
+                    cpu_percent = 0.0
+
+                # Calculate memory usage with safety checks
                 memory_stats = stats.get("memory_stats", {})
                 memory_usage = memory_stats.get("usage", 0) / (1024 * 1024)  # MB
-                memory_limit = memory_stats.get("limit", 0) / (1024 * 1024)  # MB
+                memory_limit = memory_stats.get("limit", 1) / (1024 * 1024)  # MB, default 1 to avoid division by zero
 
                 usage[container.hostname] = {
                     "cpu_percent": round(cpu_percent, 2),

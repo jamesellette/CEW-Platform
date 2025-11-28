@@ -237,9 +237,10 @@ async def handle_lab_websocket(
         while True:
             try:
                 # Wait for client messages (ping/pong or commands)
+                # 15 second timeout for better responsiveness
                 data = await asyncio.wait_for(
                     websocket.receive_text(),
-                    timeout=30.0
+                    timeout=15.0
                 )
                 message = json.loads(data)
 
