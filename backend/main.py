@@ -22,6 +22,7 @@ from orchestrator import orchestrator
 from websocket_manager import (
     connection_manager, lab_monitor, handle_lab_websocket
 )
+from session_recording import session_recorder, EventType, RecordingState
 from contextlib import asynccontextmanager
 
 
@@ -777,3 +778,265 @@ async def websocket_status(
         "connected_labs": connection_manager.get_connected_labs(),
         "total_connections": connection_manager.get_connection_count()
     }
+
+
+# ============ Session Recording Endpoints ============
+
+class RecordingStartRequest(BaseModel):
+    """Request to start a recording session."""
+    lab_id: str
+    scenario_id: str
+    scenario_name: str
+    metadata: Optional[dict] = None
+
+
+class RecordEventRequest(BaseModel):
+    """Request to record an event."""
+    event_type: str
+    container_id: Optional[str] = None
+    hostname: Optional[str] = None
+    data: Optional[dict] = None
+
+
+class CommandEventRequest(BaseModel):
+    """Request to record a command execution."""
+    container_id: str
+    hostname: str
+    command: str
+    output: str
+    exit_code: int
+    duration_ms: int
+
+
+@app.post("/recordings/start")
+async def start_recording(
+    request: RecordingStartRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Start a new recording session for a lab."""
+    try:
+        session = await session_recorder.start_recording(
+            lab_id=request.lab_id,
+            scenario_id=request.scenario_id,
+            scenario_name=request.scenario_name,
+            username=current_user.username,
+            metadata=request.metadata
+        )
+
+        log_action(
+            action=AuditAction.ACTIVATE_SCENARIO,
+            username=current_user.username,
+            resource_type="recording",
+            resource_id=session.session_id,
+            details=f"Started recording for lab {request.lab_id}"
+        )
+
+        return session.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/recordings/{session_id}/stop")
+async def stop_recording(
+    session_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Stop a recording session."""
+    try:
+        session = await session_recorder.stop_recording(session_id)
+
+        log_action(
+            action=AuditAction.DEACTIVATE_SCENARIO,
+            username=current_user.username,
+            resource_type="recording",
+            resource_id=session_id,
+            details=f"Stopped recording (duration: {session.get_duration():.1f}s)"
+        )
+
+        return session.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/recordings/{session_id}/pause")
+async def pause_recording(
+    session_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Pause a recording session."""
+    try:
+        session = await session_recorder.pause_recording(session_id)
+        return session.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/recordings/{session_id}/resume")
+async def resume_recording(
+    session_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Resume a paused recording session."""
+    try:
+        session = await session_recorder.resume_recording(session_id)
+        return session.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/recordings/labs/{lab_id}/events")
+async def record_event(
+    lab_id: str,
+    request: RecordEventRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Record an event for a lab's active session."""
+    try:
+        event_type = EventType(request.event_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid event type: {request.event_type}"
+        )
+
+    event = await session_recorder.record_event(
+        lab_id=lab_id,
+        event_type=event_type,
+        container_id=request.container_id,
+        hostname=request.hostname,
+        data=request.data
+    )
+
+    if event:
+        return event.to_dict()
+    return {"message": "No active recording for this lab"}
+
+
+@app.post("/recordings/labs/{lab_id}/commands")
+async def record_command(
+    lab_id: str,
+    request: CommandEventRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Record a command execution for a lab's active session."""
+    event = await session_recorder.record_command(
+        lab_id=lab_id,
+        container_id=request.container_id,
+        hostname=request.hostname,
+        command=request.command,
+        output=request.output,
+        exit_code=request.exit_code,
+        duration_ms=request.duration_ms
+    )
+
+    if event:
+        return event.to_dict()
+    return {"message": "No active recording for this lab"}
+
+
+@app.get("/recordings")
+async def list_recordings(
+    username: Optional[str] = None,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[dict]:
+    """List all recording sessions."""
+    if username:
+        sessions = session_recorder.get_sessions_for_user(username)
+    else:
+        sessions = session_recorder.get_all_sessions()
+
+    return [s.to_dict() for s in sessions]
+
+
+@app.get("/recordings/{session_id}")
+async def get_recording(
+    session_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get a recording session details."""
+    session = session_recorder.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    return session.to_dict()
+
+
+@app.get("/recordings/{session_id}/summary")
+async def get_recording_summary(
+    session_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get a summary of a recording session."""
+    summary = session_recorder.get_session_summary(session_id)
+    if not summary:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    return summary
+
+
+@app.get("/recordings/{session_id}/events")
+async def get_recording_events(
+    session_id: str,
+    event_types: Optional[str] = None,
+    limit: int = 1000,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[dict]:
+    """Get events from a recording session."""
+    # Parse event types filter
+    filter_types = None
+    if event_types:
+        try:
+            filter_types = [EventType(t.strip()) for t in event_types.split(",")]
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid event type: {e}")
+
+    events = session_recorder.get_session_events(
+        session_id=session_id,
+        event_types=filter_types,
+        limit=limit
+    )
+
+    return [e.to_dict() for e in events]
+
+
+@app.get("/recordings/{session_id}/playback")
+async def get_playback_data(
+    session_id: str,
+    speed: float = 1.0,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get recording data formatted for playback."""
+    session = session_recorder.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Recording not found")
+
+    if session.state not in [RecordingState.STOPPED, RecordingState.PAUSED]:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot playback an active recording"
+        )
+
+    events = session_recorder.get_playback_events(session_id, speed)
+
+    return {
+        "session": session.to_dict(),
+        "events": events,
+        "playback_speed": speed,
+        "total_duration_ms": events[-1]["elapsed_ms"] if events else 0
+    }
+
+
+@app.get("/recordings/labs/{lab_id}/current")
+async def get_current_recording(
+    lab_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get the current recording session for a lab."""
+    session = session_recorder.get_session_for_lab(lab_id)
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="No active recording for this lab"
+        )
+
+    return session.to_dict()

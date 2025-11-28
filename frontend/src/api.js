@@ -85,6 +85,57 @@ export const wsApi = {
   },
 };
 
+// Session Recording API - for exercise recording and playback
+export const recordingApi = {
+  // Start a recording session
+  start: (labId, scenarioId, scenarioName, metadata = null) =>
+    api.post('/recordings/start', { lab_id: labId, scenario_id: scenarioId, scenario_name: scenarioName, metadata }),
+
+  // Stop a recording session
+  stop: (sessionId) => api.post(`/recordings/${sessionId}/stop`),
+
+  // Pause a recording session
+  pause: (sessionId) => api.post(`/recordings/${sessionId}/pause`),
+
+  // Resume a recording session
+  resume: (sessionId) => api.post(`/recordings/${sessionId}/resume`),
+
+  // List all recordings
+  list: (username = null) => api.get('/recordings', { params: username ? { username } : {} }),
+
+  // Get a specific recording
+  get: (sessionId) => api.get(`/recordings/${sessionId}`),
+
+  // Get recording summary
+  getSummary: (sessionId) => api.get(`/recordings/${sessionId}/summary`),
+
+  // Get recording events
+  getEvents: (sessionId, eventTypes = null, limit = 1000) =>
+    api.get(`/recordings/${sessionId}/events`, { params: { event_types: eventTypes, limit } }),
+
+  // Get playback data
+  getPlayback: (sessionId, speed = 1.0) =>
+    api.get(`/recordings/${sessionId}/playback`, { params: { speed } }),
+
+  // Get current recording for a lab
+  getCurrent: (labId) => api.get(`/recordings/labs/${labId}/current`),
+
+  // Record an event
+  recordEvent: (labId, eventType, containerId = null, hostname = null, data = null) =>
+    api.post(`/recordings/labs/${labId}/events`, { event_type: eventType, container_id: containerId, hostname, data }),
+
+  // Record a command execution
+  recordCommand: (labId, containerId, hostname, command, output, exitCode, durationMs) =>
+    api.post(`/recordings/labs/${labId}/commands`, {
+      container_id: containerId,
+      hostname,
+      command,
+      output,
+      exit_code: exitCode,
+      duration_ms: durationMs,
+    }),
+};
+
 // Kill switch API
 export const killSwitchApi = {
   activate: () => api.post('/kill-switch'),
