@@ -70,6 +70,19 @@ export const labApi = {
   listActive: () => api.get('/labs/active'),
   get: (labId) => api.get(`/labs/${labId}`),
   stop: (labId) => api.post(`/labs/${labId}/stop`),
+  getHealth: (labId) => api.get(`/labs/${labId}/health`),
+  getResources: (labId) => api.get(`/labs/${labId}/resources`),
+  recover: (labId) => api.post(`/labs/${labId}/recover`),
+};
+
+// WebSocket API - for real-time lab monitoring
+export const wsApi = {
+  getStatus: () => api.get('/ws/status'),
+  getLabMonitorUrl: (labId, token) => {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = API_BASE_URL.replace(/^https?:\/\//, '');
+    return `${wsProtocol}//${host}/ws/labs/${labId}?token=${token}`;
+  },
 };
 
 // Kill switch API

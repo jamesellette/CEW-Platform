@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -12,14 +12,30 @@ from datetime import timedelta
 from auth import (
     User, Token, LoginRequest, UserCreate, UserRole,
     authenticate_user, create_access_token, get_current_user,
-    require_role, create_user, list_users, delete_user, ACCESS_TOKEN_EXPIRE_MINUTES
+    require_role, create_user, list_users, delete_user, ACCESS_TOKEN_EXPIRE_MINUTES,
+    get_user_from_token
 )
 from audit import (
     AuditLog, AuditAction, log_action, get_audit_logs
 )
 from orchestrator import orchestrator
+from websocket_manager import (
+    connection_manager, lab_monitor, handle_lab_websocket
+)
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="CEW Training Backend (prototype)")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler for startup/shutdown events."""
+    # Startup
+    await lab_monitor.start()
+    yield
+    # Shutdown
+    await lab_monitor.stop()
+
+
+app = FastAPI(title="CEW Training Backend (prototype)", lifespan=lifespan)
 
 # Enable CORS for frontend development
 app.add_middleware(
@@ -719,3 +735,45 @@ async def recover_lab_containers(
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============ WebSocket Endpoints for Real-Time Monitoring ============
+
+@app.websocket("/ws/labs/{lab_id}")
+async def websocket_lab_monitor(websocket: WebSocket, lab_id: str):
+    """
+    WebSocket endpoint for real-time lab monitoring.
+
+    Clients should send a token query parameter or authenticate first.
+    Sends periodic updates with container health and resource usage.
+    """
+    # Get token from query params
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
+
+    # Validate token
+    user = get_user_from_token(token)
+    if not user:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
+
+    # Check role permissions
+    if user.role not in [UserRole.ADMIN, UserRole.INSTRUCTOR]:
+        await websocket.close(code=4003, reason="Insufficient permissions")
+        return
+
+    # Handle the WebSocket connection
+    await handle_lab_websocket(websocket, lab_id, user.username)
+
+
+@app.get("/ws/status")
+async def websocket_status(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get WebSocket connection status for monitoring."""
+    return {
+        "connected_labs": connection_manager.get_connected_labs(),
+        "total_connections": connection_manager.get_connection_count()
+    }

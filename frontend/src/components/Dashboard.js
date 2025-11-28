@@ -53,6 +53,18 @@ export default function Dashboard({ user }) {
           </div>
         </div>
 
+        {/* Docker Status */}
+        <div style={cardStyle}>
+          <h3 style={cardTitleStyle}>Container Engine</h3>
+          <div style={statusIndicatorStyle(status.docker?.available)}>
+            <span style={statusDotStyle(status.docker?.available)}></span>
+            {status.docker?.available ? '🐳 Docker Active' : '🔄 Simulation Mode'}
+          </div>
+          <div style={modeInfoStyle}>
+            Mode: <strong>{status.docker?.mode || 'simulation'}</strong>
+          </div>
+        </div>
+
         {/* Scenarios */}
         <div style={cardStyle}>
           <h3 style={cardTitleStyle}>Scenarios</h3>
@@ -166,6 +178,12 @@ const statusDotStyle = (isOperational) => ({
   backgroundColor: isOperational ? '#28a745' : '#dc3545',
   display: 'inline-block',
 });
+
+const modeInfoStyle = {
+  marginTop: '8px',
+  fontSize: '12px',
+  color: '#666',
+};
 
 const metricStyle = {
   display: 'flex',

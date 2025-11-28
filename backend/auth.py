@@ -226,5 +226,31 @@ def delete_user(username: str) -> bool:
     return False
 
 
+def get_user_from_token(token: str) -> Optional[User]:
+    """
+    Get a user from a JWT token string.
+    Used for WebSocket authentication where Depends() can't be used.
+
+    Args:
+        token: The JWT token string
+
+    Returns:
+        User object if token is valid, None otherwise
+    """
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+
+        user = get_user(username)
+        if user is None or user.disabled:
+            return None
+
+        return User(**user.model_dump(exclude={"hashed_password"}))
+    except JWTError:
+        return None
+
+
 # Initialize default users on module load
 _init_default_users()
