@@ -8,7 +8,6 @@ import json
 import yaml
 from pathlib import Path
 from datetime import timedelta
-from contextlib import asynccontextmanager
 
 from auth import (
     User, Token, LoginRequest, UserCreate, UserRole,
@@ -336,6 +335,8 @@ def import_scenario(import_data: ScenarioImport) -> Scenario:
 
 # Track active scenarios (in production, this would be in Redis or similar)
 active_scenarios: dict[str, dict] = {}
+# Reverse mapping from lab_id to scenario_id for O(1) lookup
+lab_to_scenario: dict[str, str] = {}
 
 
 class ScenarioActivation(BaseModel):
@@ -385,6 +386,8 @@ async def activate_scenario(
             "status": "active",
             "lab_id": lab.lab_id
         }
+        # Add reverse mapping for O(1) lookup
+        lab_to_scenario[lab.lab_id] = scenario_id
 
         log_action(
             action=AuditAction.ACTIVATE_SCENARIO,
@@ -418,8 +421,11 @@ async def deactivate_scenario(
 
     # Stop the lab if it has one
     if "lab_id" in scenario_info:
+        lab_id = scenario_info["lab_id"]
+        # Clean up reverse mapping
+        lab_to_scenario.pop(lab_id, None)
         try:
-            await orchestrator.stop_lab(scenario_info["lab_id"])
+            await orchestrator.stop_lab(lab_id)
         except Exception as e:
             # Log error but don't fail - scenario is already deactivated
             log_action(
@@ -453,8 +459,9 @@ async def emergency_kill_switch(
     # Stop all labs via orchestrator
     stopped_labs = await orchestrator.kill_all_labs(current_user.username)
 
-    # Clear all active scenarios
+    # Clear all active scenarios and reverse mapping
     active_scenarios.clear()
+    lab_to_scenario.clear()
 
     log_action(
         action=AuditAction.KILL_SWITCH,
@@ -565,11 +572,10 @@ async def stop_lab(
     try:
         lab = await orchestrator.stop_lab(lab_id)
 
-        # Also remove from active scenarios if present
-        for scenario_id, info in list(active_scenarios.items()):
-            if info.get("lab_id") == lab_id:
-                del active_scenarios[scenario_id]
-                break
+        # Also remove from active scenarios using O(1) reverse lookup
+        scenario_id = lab_to_scenario.pop(lab_id, None)
+        if scenario_id:
+            active_scenarios.pop(scenario_id, None)
 
         log_action(
             action=AuditAction.DEACTIVATE_SCENARIO,
