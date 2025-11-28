@@ -4,6 +4,12 @@ from main import app, db
 client = TestClient(app)
 
 
+def test_health_check():
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "healthy"}
+
+
 def test_list_scenarios_empty():
     db.clear()
     r = client.get("/scenarios")
@@ -57,3 +63,86 @@ def test_create_scenario_external_network_blocked():
     r = client.post("/scenarios", json=scenario_data)
     assert r.status_code == 400
     assert "External network access disabled" in r.json()["detail"]
+
+
+def test_update_scenario():
+    db.clear()
+    # Create a scenario first
+    scenario_data = {
+        "name": "Original Name",
+        "description": "Original description"
+    }
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    # Update the scenario
+    update_data = {
+        "name": "Updated Name",
+        "description": "Updated description"
+    }
+    r = client.put(f"/scenarios/{scenario_id}", json=update_data)
+    assert r.status_code == 200
+    assert r.json()["name"] == "Updated Name"
+    assert r.json()["description"] == "Updated description"
+
+
+def test_update_scenario_partial():
+    db.clear()
+    # Create a scenario first
+    scenario_data = {
+        "name": "Original Name",
+        "description": "Original description"
+    }
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    # Update only the name
+    update_data = {"name": "Only Name Updated"}
+    r = client.put(f"/scenarios/{scenario_id}", json=update_data)
+    assert r.status_code == 200
+    assert r.json()["name"] == "Only Name Updated"
+    assert r.json()["description"] == "Original description"
+
+
+def test_update_scenario_not_found():
+    db.clear()
+    update_data = {"name": "Updated Name"}
+    r = client.put("/scenarios/nonexistent-id", json=update_data)
+    assert r.status_code == 404
+
+
+def test_update_scenario_external_network_blocked():
+    db.clear()
+    # Create a scenario first
+    scenario_data = {"name": "Test Scenario"}
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    # Try to update with external network enabled
+    update_data = {"constraints": {"allow_external_network": True}}
+    r = client.put(f"/scenarios/{scenario_id}", json=update_data)
+    assert r.status_code == 400
+    assert "External network access disabled" in r.json()["detail"]
+
+
+def test_delete_scenario():
+    db.clear()
+    # Create a scenario first
+    scenario_data = {"name": "To Be Deleted"}
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    # Delete the scenario
+    r = client.delete(f"/scenarios/{scenario_id}")
+    assert r.status_code == 200
+    assert r.json()["message"] == "Scenario deleted successfully"
+
+    # Verify it's deleted
+    r = client.get(f"/scenarios/{scenario_id}")
+    assert r.status_code == 404
+
+
+def test_delete_scenario_not_found():
+    db.clear()
+    r = client.delete("/scenarios/nonexistent-id")
+    assert r.status_code == 404
