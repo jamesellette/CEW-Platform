@@ -17,7 +17,7 @@ from auth import (
 from audit import (
     AuditLog, AuditAction, log_action, get_audit_logs
 )
-from orchestrator import orchestrator, LabStatus
+from orchestrator import orchestrator
 
 app = FastAPI(title="CEW Training Backend (prototype)")
 
@@ -91,6 +91,10 @@ async def system_status(
 
     return {
         "status": "operational",
+        "docker": {
+            "available": orchestrator.docker_available,
+            "mode": "docker" if orchestrator.docker_available else "simulation"
+        },
         "scenarios": {
             "total": len(db),
             "active": len(active_scenarios)
@@ -528,7 +532,10 @@ async def emergency_kill_switch(
         action=AuditAction.KILL_SWITCH,
         username=current_user.username,
         resource_type="system",
-        details=f"Emergency kill switch activated. Deactivated {deactivated_count} scenarios, stopped {len(stopped_labs)} labs."
+        details=(
+            f"Emergency kill switch activated. Deactivated {deactivated_count} scenarios, "
+            f"stopped {len(stopped_labs)} labs."
+        )
     )
 
     return {
@@ -650,6 +657,65 @@ async def stop_lab(
             "message": "Lab stopped successfully",
             "lab_id": lab_id,
             "status": lab.status.value
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/labs/{lab_id}/health")
+async def get_lab_health(
+    lab_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get health status of all containers in a lab."""
+    try:
+        health = await orchestrator.get_container_health(lab_id)
+        return {
+            "lab_id": lab_id,
+            "docker_mode": orchestrator.docker_available,
+            "containers": health
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/labs/{lab_id}/resources")
+async def get_lab_resources(
+    lab_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get resource usage for all containers in a lab."""
+    try:
+        usage = orchestrator.get_resource_usage(lab_id)
+        return {
+            "lab_id": lab_id,
+            "docker_mode": orchestrator.docker_available,
+            "containers": usage
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/labs/{lab_id}/recover")
+async def recover_lab_containers(
+    lab_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Attempt to restart unhealthy containers in a lab (auto-recovery)."""
+    try:
+        restarted = await orchestrator.restart_unhealthy_containers(lab_id)
+        log_action(
+            action=AuditAction.ACTIVATE_SCENARIO,
+            username=current_user.username,
+            resource_type="lab",
+            resource_id=lab_id,
+            details=f"Auto-recovery: restarted {len(restarted)} containers"
+        )
+        return {
+            "lab_id": lab_id,
+            "docker_mode": orchestrator.docker_available,
+            "restarted_containers": restarted,
+            "count": len(restarted)
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

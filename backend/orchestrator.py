@@ -14,7 +14,20 @@ from enum import Enum
 from typing import Optional
 import uuid
 
+try:
+    import docker
+    from docker.types import IPAMConfig, IPAMPool
+    DOCKER_SDK_AVAILABLE = True
+except ImportError:
+    DOCKER_SDK_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
+
+# Default resource limits for containers
+DEFAULT_MEMORY_LIMIT = "512m"
+DEFAULT_CPU_PERIOD = 100000  # microseconds
+DEFAULT_CPU_QUOTA = 50000    # 50% of one CPU core
+DEFAULT_NETWORK_BANDWIDTH = "10mbit"  # Placeholder for future TC integration
 
 
 class LabStatus(str, Enum):
@@ -27,6 +40,27 @@ class LabStatus(str, Enum):
     FAILED = "failed"
 
 
+class ContainerHealth(str, Enum):
+    """Health status of a container."""
+    HEALTHY = "healthy"
+    UNHEALTHY = "unhealthy"
+    STARTING = "starting"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class ResourceLimits:
+    """Resource limits for a container."""
+    memory_limit: str = DEFAULT_MEMORY_LIMIT
+    cpu_quota: int = DEFAULT_CPU_QUOTA
+    cpu_period: int = DEFAULT_CPU_PERIOD
+
+    @property
+    def cpu_percent(self) -> float:
+        """Return CPU limit as percentage."""
+        return (self.cpu_quota / self.cpu_period) * 100
+
+
 @dataclass
 class ContainerInfo:
     """Information about a running container."""
@@ -36,6 +70,8 @@ class ContainerInfo:
     image: str
     ip_address: Optional[str] = None
     status: str = "created"
+    health: ContainerHealth = ContainerHealth.UNKNOWN
+    resource_limits: Optional[ResourceLimits] = None
 
 
 @dataclass
@@ -59,27 +95,52 @@ class LabEnvironment:
     networks: list[NetworkInfo] = field(default_factory=list)
     started_at: Optional[datetime] = None
     error_message: Optional[str] = None
+    docker_mode: bool = False  # True if using real Docker
 
 
 class Orchestrator:
     """
     Orchestrates the creation and management of isolated lab environments.
 
-    In the current prototype, this is a simulation layer that tracks lab state
-    without actually creating Docker containers. In production, this would
-    interface with the Docker API to create real isolated environments.
+    This module integrates with the Docker SDK to create real isolated
+    container environments. When Docker is not available, it falls back
+    to simulation mode for development and testing.
     """
 
-    def __init__(self):
+    def __init__(self, docker_client=None):
+        """
+        Initialize the orchestrator.
+
+        Args:
+            docker_client: Optional Docker client for dependency injection.
+                          If not provided, will attempt to create one.
+        """
         self._labs: dict[str, LabEnvironment] = {}
         self._lock = asyncio.Lock()
+        self._docker_client = docker_client
         self._docker_available = self._check_docker()
 
     def _check_docker(self) -> bool:
-        """Check if Docker is available."""
-        # In production, this would check for Docker daemon
-        # For now, we operate in simulation mode
-        return False
+        """Check if Docker daemon is available and accessible."""
+        if not DOCKER_SDK_AVAILABLE:
+            logger.info("Docker SDK not installed, running in simulation mode")
+            return False
+
+        try:
+            if self._docker_client is None:
+                self._docker_client = docker.from_env()
+            # Ping the Docker daemon to verify connectivity
+            self._docker_client.ping()
+            logger.info("Docker daemon available, running in Docker mode")
+            return True
+        except docker.errors.DockerException as e:
+            logger.warning(f"Docker not available: {e}. Running in simulation mode")
+            return False
+
+    @property
+    def docker_available(self) -> bool:
+        """Return whether Docker is available."""
+        return self._docker_available
 
     async def create_lab(
         self,
@@ -124,7 +185,8 @@ class Orchestrator:
                 scenario_id=scenario_id,
                 scenario_name=scenario_name,
                 activated_by=activated_by,
-                status=LabStatus.STARTING
+                status=LabStatus.STARTING,
+                docker_mode=self._docker_available
             )
             self._labs[lab_id] = lab
 
@@ -132,22 +194,31 @@ class Orchestrator:
             # Create networks first
             networks = topology.get("networks", [])
             for net_def in networks:
-                network = await self._create_network(net_def)
+                network = await self._create_network(net_def, lab_id)
                 lab.networks.append(network)
 
             # Create containers
             nodes = topology.get("nodes", [])
+            resource_limits = self._get_resource_limits(constraints)
             for node_def in nodes:
-                container = await self._create_container(node_def, lab.networks)
+                container = await self._create_container(
+                    node_def, lab.networks, lab_id, resource_limits
+                )
                 lab.containers.append(container)
+
+            # Start all containers
+            if self._docker_available:
+                await self._start_containers(lab)
 
             # Update status
             lab.status = LabStatus.RUNNING
             lab.started_at = datetime.now(timezone.utc)
 
+            mode = "Docker" if self._docker_available else "simulation"
             logger.info(
                 f"Lab {lab_id} created for scenario '{scenario_name}' "
-                f"with {len(lab.containers)} containers and {len(lab.networks)} networks"
+                f"with {len(lab.containers)} containers and {len(lab.networks)} networks "
+                f"(mode: {mode})"
             )
 
             return lab
@@ -156,11 +227,21 @@ class Orchestrator:
             lab.status = LabStatus.FAILED
             lab.error_message = str(e)
             logger.error(f"Failed to create lab {lab_id}: {e}")
+            # Clean up any partially created resources
+            await self._cleanup_lab_resources(lab)
             raise
 
-    async def _create_network(self, net_def: dict) -> NetworkInfo:
+    def _get_resource_limits(self, constraints: dict) -> ResourceLimits:
+        """Extract resource limits from constraints or use defaults."""
+        resource_config = constraints.get("resources", {})
+        return ResourceLimits(
+            memory_limit=resource_config.get("memory_limit", DEFAULT_MEMORY_LIMIT),
+            cpu_quota=resource_config.get("cpu_quota", DEFAULT_CPU_QUOTA),
+            cpu_period=resource_config.get("cpu_period", DEFAULT_CPU_PERIOD)
+        )
+
+    async def _create_network(self, net_def: dict, lab_id: str) -> NetworkInfo:
         """Create an isolated network."""
-        network_id = f"cew-net-{uuid.uuid4().hex[:12]}"
         name = net_def.get("name", "unnamed-network")
         subnet = net_def.get("subnet", "10.0.0.0/24")
         isolated = net_def.get("isolated", True)
@@ -171,17 +252,37 @@ class Orchestrator:
                 "Set 'isolated: true' in network definition."
             )
 
-        if self._docker_available:
-            # In production: Create actual Docker network
-            # docker_client.networks.create(
-            #     name=network_id,
-            #     driver="bridge",
-            #     internal=True,  # No external access
-            #     ipam=IPAMConfig(pool_configs=[IPAMPool(subnet=subnet)])
-            # )
-            pass
+        # Generate unique network name with lab prefix
+        network_name = f"cew-{lab_id[:8]}-{name}"
 
-        logger.debug(f"Created network {name} ({network_id}) with subnet {subnet}")
+        if self._docker_available:
+            try:
+                ipam_config = IPAMConfig(
+                    pool_configs=[IPAMPool(subnet=subnet)]
+                )
+                docker_network = self._docker_client.networks.create(
+                    name=network_name,
+                    driver="bridge",
+                    internal=True,  # No external access - critical for isolation
+                    ipam=ipam_config,
+                    labels={
+                        "cew.lab_id": lab_id,
+                        "cew.network_name": name
+                    }
+                )
+                network_id = docker_network.id
+                logger.debug(
+                    f"Created Docker network {name} ({network_id}) "
+                    f"with subnet {subnet}"
+                )
+            except docker.errors.APIError as e:
+                raise RuntimeError(f"Failed to create network '{name}': {e}")
+        else:
+            network_id = f"cew-net-{uuid.uuid4().hex[:12]}"
+            logger.debug(
+                f"Simulated network {name} ({network_id}) with subnet {subnet}"
+            )
+
         return NetworkInfo(
             network_id=network_id,
             name=name,
@@ -192,38 +293,130 @@ class Orchestrator:
     async def _create_container(
         self,
         node_def: dict,
-        networks: list[NetworkInfo]
+        networks: list[NetworkInfo],
+        lab_id: str,
+        resource_limits: ResourceLimits
     ) -> ContainerInfo:
         """Create a container for a node."""
-        container_id = f"cew-{uuid.uuid4().hex[:12]}"
         node_id = node_def.get("id", str(uuid.uuid4()))
         hostname = node_def.get("hostname", f"node-{node_id}")
         image = node_def.get("image", "ubuntu:22.04")
         ip_address = node_def.get("ip")
 
-        if self._docker_available:
-            # In production: Create actual Docker container
-            # container = docker_client.containers.create(
-            #     image=image,
-            #     hostname=hostname,
-            #     name=container_id,
-            #     network_mode="none",  # Will attach to isolated networks
-            #     cap_drop=["ALL"],  # Drop all capabilities for security
-            #     read_only=True,  # Read-only filesystem
-            #     mem_limit="512m",
-            #     cpu_quota=50000,  # Limit CPU
-            # )
-            pass
+        # Generate unique container name with lab prefix
+        container_name = f"cew-{lab_id[:8]}-{hostname}"
 
-        logger.debug(f"Created container {hostname} ({container_id}) from {image}")
+        if self._docker_available:
+            try:
+                # Pull image if not available locally
+                await self._ensure_image(image)
+
+                # Create container with security constraints
+                container = self._docker_client.containers.create(
+                    image=image,
+                    hostname=hostname,
+                    name=container_name,
+                    network_mode="none",  # Will attach to isolated networks
+                    cap_drop=["ALL"],  # Drop all capabilities for security
+                    security_opt=["no-new-privileges"],
+                    mem_limit=resource_limits.memory_limit,
+                    cpu_period=resource_limits.cpu_period,
+                    cpu_quota=resource_limits.cpu_quota,
+                    labels={
+                        "cew.lab_id": lab_id,
+                        "cew.node_id": node_id,
+                        "cew.hostname": hostname
+                    },
+                    detach=True
+                )
+                container_id = container.id
+
+                # Connect to networks
+                for network in networks:
+                    await self._connect_container_to_network(
+                        container_id, network, ip_address
+                    )
+
+                logger.debug(
+                    f"Created Docker container {hostname} ({container_id[:12]}) "
+                    f"from {image} with limits: {resource_limits.memory_limit} RAM, "
+                    f"{resource_limits.cpu_percent:.0f}% CPU"
+                )
+            except docker.errors.ImageNotFound:
+                raise RuntimeError(f"Image '{image}' not found and could not be pulled")
+            except docker.errors.APIError as e:
+                raise RuntimeError(f"Failed to create container '{hostname}': {e}")
+        else:
+            container_id = f"cew-{uuid.uuid4().hex[:12]}"
+            logger.debug(
+                f"Simulated container {hostname} ({container_id}) from {image}"
+            )
+
         return ContainerInfo(
             container_id=container_id,
             node_id=node_id,
             hostname=hostname,
             image=image,
             ip_address=ip_address,
-            status="running" if self._docker_available else "simulated"
+            status="created",
+            health=ContainerHealth.STARTING,
+            resource_limits=resource_limits
         )
+
+    async def _ensure_image(self, image: str) -> None:
+        """Ensure the Docker image is available locally."""
+        if not self._docker_available:
+            return
+
+        try:
+            self._docker_client.images.get(image)
+        except docker.errors.ImageNotFound:
+            logger.info(f"Pulling image: {image}")
+            try:
+                self._docker_client.images.pull(image)
+            except docker.errors.APIError as e:
+                raise RuntimeError(f"Failed to pull image '{image}': {e}")
+
+    async def _connect_container_to_network(
+        self,
+        container_id: str,
+        network: NetworkInfo,
+        ip_address: Optional[str]
+    ) -> None:
+        """Connect a container to a network."""
+        if not self._docker_available:
+            return
+
+        try:
+            docker_network = self._docker_client.networks.get(network.network_id)
+            connect_kwargs = {}
+            if ip_address:
+                connect_kwargs["ipv4_address"] = ip_address
+            docker_network.connect(container_id, **connect_kwargs)
+        except docker.errors.APIError as e:
+            logger.warning(
+                f"Failed to connect container to network {network.name}: {e}"
+            )
+
+    async def _start_containers(self, lab: LabEnvironment) -> None:
+        """Start all containers in a lab."""
+        if not self._docker_available:
+            return
+
+        for container_info in lab.containers:
+            try:
+                container = self._docker_client.containers.get(
+                    container_info.container_id
+                )
+                container.start()
+                container_info.status = "running"
+                container_info.health = ContainerHealth.HEALTHY
+            except docker.errors.APIError as e:
+                container_info.status = "failed"
+                container_info.health = ContainerHealth.UNHEALTHY
+                logger.error(
+                    f"Failed to start container {container_info.hostname}: {e}"
+                )
 
     def _validate_constraints(self, constraints: dict) -> None:
         """Validate safety constraints."""
@@ -263,14 +456,7 @@ class Orchestrator:
             lab.status = LabStatus.STOPPING
 
         try:
-            # Stop containers
-            for container in lab.containers:
-                await self._stop_container(container)
-
-            # Remove networks
-            for network in lab.networks:
-                await self._remove_network(network)
-
+            await self._cleanup_lab_resources(lab)
             lab.status = LabStatus.STOPPED
             logger.info(f"Lab {lab_id} stopped successfully")
 
@@ -282,25 +468,167 @@ class Orchestrator:
 
         return lab
 
+    async def _cleanup_lab_resources(self, lab: LabEnvironment) -> None:
+        """Clean up all resources for a lab (containers and networks)."""
+        # Stop and remove containers first
+        for container in lab.containers:
+            await self._stop_container(container)
+
+        # Remove networks after containers
+        for network in lab.networks:
+            await self._remove_network(network)
+
     async def _stop_container(self, container: ContainerInfo) -> None:
         """Stop and remove a container."""
         if self._docker_available:
-            # In production: Stop actual Docker container
-            # docker_client.containers.get(container.container_id).stop()
-            # docker_client.containers.get(container.container_id).remove()
-            pass
+            try:
+                docker_container = self._docker_client.containers.get(
+                    container.container_id
+                )
+                docker_container.stop(timeout=10)
+                docker_container.remove(force=True)
+                logger.debug(
+                    f"Stopped and removed Docker container {container.hostname}"
+                )
+            except docker.errors.NotFound:
+                logger.debug(
+                    f"Container {container.hostname} already removed"
+                )
+            except docker.errors.APIError as e:
+                logger.warning(
+                    f"Error stopping container {container.hostname}: {e}"
+                )
 
         container.status = "stopped"
-        logger.debug(f"Stopped container {container.hostname}")
+        container.health = ContainerHealth.UNKNOWN
 
     async def _remove_network(self, network: NetworkInfo) -> None:
         """Remove a network."""
         if self._docker_available:
-            # In production: Remove actual Docker network
-            # docker_client.networks.get(network.network_id).remove()
-            pass
+            try:
+                docker_network = self._docker_client.networks.get(network.network_id)
+                docker_network.remove()
+                logger.debug(f"Removed Docker network {network.name}")
+            except docker.errors.NotFound:
+                logger.debug(f"Network {network.name} already removed")
+            except docker.errors.APIError as e:
+                logger.warning(f"Error removing network {network.name}: {e}")
 
         logger.debug(f"Removed network {network.name}")
+
+    async def get_container_health(self, lab_id: str) -> dict:
+        """
+        Get health status of all containers in a lab.
+
+        Args:
+            lab_id: Unique identifier of the lab
+
+        Returns:
+            Dictionary with container health information
+        """
+        lab = self._labs.get(lab_id)
+        if not lab:
+            raise ValueError(f"Lab {lab_id} not found")
+
+        health_status = {}
+        for container in lab.containers:
+            if self._docker_available:
+                try:
+                    docker_container = self._docker_client.containers.get(
+                        container.container_id
+                    )
+                    attrs = docker_container.attrs
+                    state = attrs.get("State", {})
+
+                    # Determine health based on container state
+                    if state.get("Running", False):
+                        container.health = ContainerHealth.HEALTHY
+                        container.status = "running"
+                    elif state.get("Dead", False):
+                        container.health = ContainerHealth.UNHEALTHY
+                        container.status = "dead"
+                    elif state.get("Paused", False):
+                        container.health = ContainerHealth.UNKNOWN
+                        container.status = "paused"
+                    else:
+                        container.health = ContainerHealth.UNKNOWN
+                        container.status = "unknown"
+
+                    health_status[container.hostname] = {
+                        "status": container.status,
+                        "health": container.health.value,
+                        "running": state.get("Running", False),
+                        "started_at": state.get("StartedAt"),
+                        "exit_code": state.get("ExitCode")
+                    }
+                except docker.errors.NotFound:
+                    container.health = ContainerHealth.UNHEALTHY
+                    container.status = "not_found"
+                    health_status[container.hostname] = {
+                        "status": "not_found",
+                        "health": ContainerHealth.UNHEALTHY.value
+                    }
+                except docker.errors.APIError as e:
+                    health_status[container.hostname] = {
+                        "status": "error",
+                        "health": ContainerHealth.UNKNOWN.value,
+                        "error": str(e)
+                    }
+            else:
+                # Simulation mode - all containers are "healthy"
+                health_status[container.hostname] = {
+                    "status": "simulated",
+                    "health": ContainerHealth.HEALTHY.value
+                }
+
+        return health_status
+
+    async def restart_unhealthy_containers(self, lab_id: str) -> list[str]:
+        """
+        Auto-recovery: restart any unhealthy containers in a lab.
+
+        Args:
+            lab_id: Unique identifier of the lab
+
+        Returns:
+            List of container hostnames that were restarted
+        """
+        lab = self._labs.get(lab_id)
+        if not lab:
+            raise ValueError(f"Lab {lab_id} not found")
+
+        if lab.status != LabStatus.RUNNING:
+            raise ValueError(f"Lab {lab_id} is not running")
+
+        restarted = []
+
+        if not self._docker_available:
+            logger.debug("Auto-recovery skipped in simulation mode")
+            return restarted
+
+        for container in lab.containers:
+            try:
+                docker_container = self._docker_client.containers.get(
+                    container.container_id
+                )
+                if not docker_container.attrs.get("State", {}).get("Running", False):
+                    logger.info(
+                        f"Restarting unhealthy container {container.hostname}"
+                    )
+                    docker_container.restart(timeout=10)
+                    container.status = "running"
+                    container.health = ContainerHealth.HEALTHY
+                    restarted.append(container.hostname)
+            except docker.errors.NotFound:
+                logger.warning(
+                    f"Container {container.hostname} not found, cannot restart"
+                )
+            except docker.errors.APIError as e:
+                logger.error(
+                    f"Failed to restart container {container.hostname}: {e}"
+                )
+
+        return restarted
 
     async def kill_all_labs(self, activated_by: str) -> list[str]:
         """
@@ -354,6 +682,77 @@ class Orchestrator:
     def get_all_labs(self) -> list[LabEnvironment]:
         """Get all labs (active and stopped)."""
         return list(self._labs.values())
+
+    def get_resource_usage(self, lab_id: str) -> dict:
+        """
+        Get resource usage for all containers in a lab.
+
+        Args:
+            lab_id: Unique identifier of the lab
+
+        Returns:
+            Dictionary with resource usage information
+        """
+        lab = self._labs.get(lab_id)
+        if not lab:
+            raise ValueError(f"Lab {lab_id} not found")
+
+        usage = {}
+
+        if not self._docker_available:
+            # Simulation mode - return placeholder data
+            for container in lab.containers:
+                usage[container.hostname] = {
+                    "cpu_percent": 0.0,
+                    "memory_usage_mb": 0.0,
+                    "memory_limit_mb": 512.0,
+                    "mode": "simulated"
+                }
+            return usage
+
+        for container in lab.containers:
+            try:
+                docker_container = self._docker_client.containers.get(
+                    container.container_id
+                )
+                stats = docker_container.stats(stream=False)
+
+                # Calculate CPU percentage
+                cpu_delta = (
+                    stats["cpu_stats"]["cpu_usage"]["total_usage"] -
+                    stats["precpu_stats"]["cpu_usage"]["total_usage"]
+                )
+                system_delta = (
+                    stats["cpu_stats"]["system_cpu_usage"] -
+                    stats["precpu_stats"]["system_cpu_usage"]
+                )
+                cpu_percent = 0.0
+                if system_delta > 0:
+                    cpu_count = stats["cpu_stats"]["online_cpus"]
+                    cpu_percent = (cpu_delta / system_delta) * cpu_count * 100.0
+
+                # Calculate memory usage
+                memory_stats = stats.get("memory_stats", {})
+                memory_usage = memory_stats.get("usage", 0) / (1024 * 1024)  # MB
+                memory_limit = memory_stats.get("limit", 0) / (1024 * 1024)  # MB
+
+                usage[container.hostname] = {
+                    "cpu_percent": round(cpu_percent, 2),
+                    "memory_usage_mb": round(memory_usage, 2),
+                    "memory_limit_mb": round(memory_limit, 2),
+                    "mode": "docker"
+                }
+            except docker.errors.NotFound:
+                usage[container.hostname] = {
+                    "status": "not_found"
+                }
+            except docker.errors.APIError as e:
+                usage[container.hostname] = {
+                    "status": "error",
+                    "error": str(e)
+                }
+
+        return usage
 
 
 # Global orchestrator instance
