@@ -25,6 +25,7 @@ A training-focused Cyber & Electronic Warfare offensive planning platform.
 - [Architecture Overview](docs/architecture.md) - System design and components
 - [Safety Checklist](docs/safety_checklist.md) - Required safety procedures
 - [Operator Guide](docs/operator_guide.md) - Quick-start and operations guide
+- [Future Roadmap](docs/roadmap.md) - Proposed enhancements and future features
 
 ## Project Structure
 
