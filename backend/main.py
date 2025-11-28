@@ -24,6 +24,9 @@ from websocket_manager import (
 )
 from session_recording import session_recorder, EventType, RecordingState
 from progress_tracking import progress_tracker
+from marketplace import (
+    marketplace, TemplateCategory, DifficultyLevel, TemplateStatus
+)
 from contextlib import asynccontextmanager
 
 
@@ -1263,3 +1266,381 @@ async def get_all_profiles(
     """Get all trainee profiles (admin/instructor only)."""
     profiles = progress_tracker.get_all_profiles()
     return [p.to_dict() for p in profiles]
+
+
+# ============ Marketplace Endpoints ============
+
+class CreateTemplateRequest(BaseModel):
+    """Request to create a new template."""
+    name: str
+    description: str
+    category: str
+    difficulty: str
+    tags: List[str] = []
+    estimated_duration_minutes: int = 30
+    prerequisites: List[str] = []
+    learning_objectives: List[str] = []
+
+
+class AddVersionRequest(BaseModel):
+    """Request to add a new template version."""
+    version: str
+    changelog: str
+    scenario_data: dict
+
+
+class AddReviewRequest(BaseModel):
+    """Request to add a review."""
+    rating: int
+    title: str
+    comment: str
+
+
+class UpdateTemplateRequest(BaseModel):
+    """Request to update template metadata."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    difficulty: Optional[str] = None
+    tags: Optional[List[str]] = None
+    estimated_duration_minutes: Optional[int] = None
+    prerequisites: Optional[List[str]] = None
+    learning_objectives: Optional[List[str]] = None
+
+
+@app.post("/marketplace/templates")
+async def create_template(
+    request: CreateTemplateRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Create a new template (as draft)."""
+    try:
+        category = TemplateCategory(request.category)
+        difficulty = DifficultyLevel(request.difficulty)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    template = marketplace.create_template(
+        name=request.name,
+        description=request.description,
+        author=current_user.username,
+        category=category,
+        difficulty=difficulty,
+        tags=request.tags,
+        estimated_duration_minutes=request.estimated_duration_minutes,
+        prerequisites=request.prerequisites,
+        learning_objectives=request.learning_objectives
+    )
+    return template.to_dict()
+
+
+@app.get("/marketplace/templates")
+async def list_templates(
+    category: Optional[str] = None,
+    difficulty: Optional[str] = None,
+    tags: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List published templates with optional filters."""
+    cat = TemplateCategory(category) if category else None
+    diff = DifficultyLevel(difficulty) if difficulty else None
+    tag_list = tags.split(",") if tags else None
+
+    templates = marketplace.list_templates(
+        category=cat,
+        difficulty=diff,
+        tags=tag_list,
+        search_query=search
+    )
+    return [t.to_dict() for t in templates]
+
+
+@app.get("/marketplace/templates/popular")
+async def get_popular_templates(
+    limit: int = 10,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get most downloaded templates."""
+    templates = marketplace.get_popular_templates(limit)
+    return [t.to_dict() for t in templates]
+
+
+@app.get("/marketplace/templates/top-rated")
+async def get_top_rated_templates(
+    limit: int = 10,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get highest rated templates."""
+    templates = marketplace.get_top_rated_templates(limit)
+    return [t.to_dict() for t in templates]
+
+
+@app.get("/marketplace/templates/recent")
+async def get_recent_templates(
+    limit: int = 10,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get recently updated templates."""
+    templates = marketplace.get_recent_templates(limit)
+    return [t.to_dict() for t in templates]
+
+
+@app.get("/marketplace/templates/{template_id}")
+async def get_template(
+    template_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get a template by ID."""
+    template = marketplace.get_template(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return template.to_dict(include_reviews=True, include_versions=True)
+
+
+@app.put("/marketplace/templates/{template_id}")
+async def update_template(
+    template_id: str,
+    request: UpdateTemplateRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Update template metadata."""
+    template = marketplace.get_template(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    # Only author or admin can update
+    if template.author != current_user.username and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized to update this template")
+
+    category = TemplateCategory(request.category) if request.category else None
+    difficulty = DifficultyLevel(request.difficulty) if request.difficulty else None
+
+    updated = marketplace.update_template(
+        template_id=template_id,
+        name=request.name,
+        description=request.description,
+        category=category,
+        difficulty=difficulty,
+        tags=request.tags,
+        estimated_duration_minutes=request.estimated_duration_minutes,
+        prerequisites=request.prerequisites,
+        learning_objectives=request.learning_objectives
+    )
+    return updated.to_dict()
+
+
+@app.delete("/marketplace/templates/{template_id}")
+async def delete_template(
+    template_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Delete a template (admin only)."""
+    if not marketplace.delete_template(template_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete template (not found or built-in)"
+        )
+    return {"message": "Template deleted"}
+
+
+@app.post("/marketplace/templates/{template_id}/versions")
+async def add_template_version(
+    template_id: str,
+    request: AddVersionRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Add a new version to a template."""
+    template = marketplace.get_template(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    # Only author or admin can add versions
+    if template.author != current_user.username and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    try:
+        version = marketplace.add_version(
+            template_id=template_id,
+            version=request.version,
+            changelog=request.changelog,
+            scenario_data=request.scenario_data,
+            created_by=current_user.username
+        )
+        return version.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/marketplace/templates/{template_id}/versions/{version}")
+async def get_template_version(
+    template_id: str,
+    version: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get a specific template version."""
+    version_obj = marketplace.get_version(template_id, version)
+    if not version_obj:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return version_obj.to_dict()
+
+
+@app.post("/marketplace/templates/{template_id}/submit")
+async def submit_template_for_review(
+    template_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Submit a template for review."""
+    template = marketplace.get_template(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    if template.author != current_user.username and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    try:
+        updated = marketplace.submit_for_review(template_id)
+        return updated.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/marketplace/templates/{template_id}/approve")
+async def approve_template(
+    template_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Approve and publish a template (admin only)."""
+    try:
+        template = marketplace.approve_template(template_id)
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+        return template.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/marketplace/templates/{template_id}/reject")
+async def reject_template(
+    template_id: str,
+    reason: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Reject a template (admin only)."""
+    try:
+        template = marketplace.reject_template(template_id, reason)
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+        return template.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/marketplace/templates/{template_id}/deprecate")
+async def deprecate_template(
+    template_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Mark a template as deprecated (admin only)."""
+    template = marketplace.deprecate_template(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return template.to_dict()
+
+
+@app.post("/marketplace/templates/{template_id}/reviews")
+async def add_review(
+    template_id: str,
+    request: AddReviewRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Add a review to a template."""
+    try:
+        review = marketplace.add_review(
+            template_id=template_id,
+            username=current_user.username,
+            rating=request.rating,
+            title=request.title,
+            comment=request.comment
+        )
+        if not review:
+            raise HTTPException(status_code=404, detail="Template not found")
+        return review.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/marketplace/templates/{template_id}/reviews/{review_id}/helpful")
+async def vote_review_helpful(
+    template_id: str,
+    review_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Vote a review as helpful."""
+    review = marketplace.vote_helpful(template_id, review_id)
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    return review.to_dict()
+
+
+@app.post("/marketplace/templates/{template_id}/download")
+async def download_template(
+    template_id: str,
+    version: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Download/use a template to create a scenario."""
+    try:
+        result = marketplace.download_template(template_id, version)
+        if not result:
+            raise HTTPException(status_code=404, detail="Template or version not found")
+
+        log_action(
+            action=AuditAction.VIEW_SCENARIO,
+            username=current_user.username,
+            resource_type="template",
+            resource_id=template_id,
+            details=f"Downloaded template version {result['version']}"
+        )
+
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/marketplace/categories")
+async def get_categories(
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get all template categories with counts."""
+    return marketplace.get_categories()
+
+
+@app.get("/marketplace/statistics")
+async def get_marketplace_statistics(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get marketplace statistics."""
+    return marketplace.get_statistics()
+
+
+@app.get("/marketplace/my-templates")
+async def get_my_templates(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[dict]:
+    """Get templates created by the current user."""
+    # Get all templates for this author (including drafts and pending)
+    all_templates = [
+        t for t in marketplace._templates.values()
+        if t.author == current_user.username
+    ]
+    return [t.to_dict() for t in all_templates]
+
+
+@app.get("/marketplace/pending")
+async def get_pending_templates(
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> List[dict]:
+    """Get templates pending review (admin only)."""
+    templates = marketplace.list_templates(status=TemplateStatus.PENDING_REVIEW)
+    return [t.to_dict() for t in templates]

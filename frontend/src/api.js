@@ -194,6 +194,69 @@ export const progressApi = {
   getAllProfiles: () => api.get('/progress/profiles'),
 };
 
+// Marketplace API - for scenario template marketplace
+export const marketplaceApi = {
+  // Template listing and discovery
+  listTemplates: (params = {}) => api.get('/marketplace/templates', { params }),
+
+  getPopular: (limit = 10) => api.get('/marketplace/templates/popular', { params: { limit } }),
+
+  getTopRated: (limit = 10) => api.get('/marketplace/templates/top-rated', { params: { limit } }),
+
+  getRecent: (limit = 10) => api.get('/marketplace/templates/recent', { params: { limit } }),
+
+  getTemplate: (templateId) => api.get(`/marketplace/templates/${templateId}`),
+
+  // Template management
+  createTemplate: (data) => api.post('/marketplace/templates', data),
+
+  updateTemplate: (templateId, data) => api.put(`/marketplace/templates/${templateId}`, data),
+
+  deleteTemplate: (templateId) => api.delete(`/marketplace/templates/${templateId}`),
+
+  // Version management
+  addVersion: (templateId, version, changelog, scenarioData) =>
+    api.post(`/marketplace/templates/${templateId}/versions`, {
+      version,
+      changelog,
+      scenario_data: scenarioData,
+    }),
+
+  getVersion: (templateId, version) =>
+    api.get(`/marketplace/templates/${templateId}/versions/${version}`),
+
+  // Publishing workflow
+  submitForReview: (templateId) => api.post(`/marketplace/templates/${templateId}/submit`),
+
+  approveTemplate: (templateId) => api.post(`/marketplace/templates/${templateId}/approve`),
+
+  rejectTemplate: (templateId, reason) =>
+    api.post(`/marketplace/templates/${templateId}/reject`, {}, { params: { reason } }),
+
+  deprecateTemplate: (templateId) => api.post(`/marketplace/templates/${templateId}/deprecate`),
+
+  // Reviews
+  addReview: (templateId, rating, title, comment) =>
+    api.post(`/marketplace/templates/${templateId}/reviews`, { rating, title, comment }),
+
+  voteHelpful: (templateId, reviewId) =>
+    api.post(`/marketplace/templates/${templateId}/reviews/${reviewId}/helpful`),
+
+  // Download/use template
+  downloadTemplate: (templateId, version = null) =>
+    api.post(`/marketplace/templates/${templateId}/download`, {}, { params: version ? { version } : {} }),
+
+  // Categories and statistics
+  getCategories: () => api.get('/marketplace/categories'),
+
+  getStatistics: () => api.get('/marketplace/statistics'),
+
+  // User templates
+  getMyTemplates: () => api.get('/marketplace/my-templates'),
+
+  getPending: () => api.get('/marketplace/pending'),
+};
+
 // Kill switch API
 export const killSwitchApi = {
   activate: () => api.post('/kill-switch'),
