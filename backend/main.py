@@ -12,7 +12,7 @@ from datetime import timedelta
 from auth import (
     User, Token, LoginRequest, UserCreate, UserRole,
     authenticate_user, create_access_token, get_current_user,
-    require_role, create_user, ACCESS_TOKEN_EXPIRE_MINUTES
+    require_role, create_user, list_users, delete_user, ACCESS_TOKEN_EXPIRE_MINUTES
 )
 from audit import (
     AuditLog, AuditAction, log_action, get_audit_logs
@@ -164,6 +164,39 @@ def register_user(
         details=f"Created user with role: {new_user.role}"
     )
     return new_user
+
+
+@app.get("/auth/users", response_model=List[User])
+def get_all_users(
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+):
+    """List all users (admin only)."""
+    return list_users()
+
+
+@app.delete("/auth/users/{username}")
+def remove_user(
+    username: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+):
+    """Delete a user (admin only)."""
+    if username == current_user.username:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete your own account"
+        )
+
+    if not delete_user(username):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    log_action(
+        action=AuditAction.DELETE_USER,
+        username=current_user.username,
+        resource_type="user",
+        resource_id=username,
+        details=f"Deleted user: {username}"
+    )
+    return {"message": f"User {username} deleted successfully"}
 
 
 # ============ Audit Log Endpoints ============

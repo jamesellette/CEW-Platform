@@ -5,11 +5,13 @@ import TopologySelector from './components/TopologySelector';
 import Login from './components/Login';
 import InstructorControls from './components/InstructorControls';
 import Dashboard from './components/Dashboard';
+import AuditLogs from './components/AuditLogs';
+import UserManagement from './components/UserManagement';
 import { authApi } from './api';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', or 'topologies'
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -76,6 +78,7 @@ export default function App() {
   }
 
   const isInstructorOrAdmin = ['admin', 'instructor'].includes(user.role);
+  const isAdmin = user.role === 'admin';
 
   return (
     <div style={containerStyle}>
@@ -114,6 +117,22 @@ export default function App() {
           >
             📝 Scenarios
           </button>
+          {isInstructorOrAdmin && (
+            <button
+              onClick={() => setView('audit')}
+              style={view === 'audit' ? navButtonActiveStyle : navButtonStyle}
+            >
+              📋 Audit Logs
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setView('users')}
+              style={view === 'users' ? navButtonActiveStyle : navButtonStyle}
+            >
+              👥 Users
+            </button>
+          )}
         </nav>
       </header>
 
@@ -153,6 +172,12 @@ export default function App() {
             onSelect={handleTemplateSelect}
             onCancel={handleCancel}
           />
+        )}
+        {view === 'audit' && isInstructorOrAdmin && (
+          <AuditLogs />
+        )}
+        {view === 'users' && isAdmin && (
+          <UserManagement currentUser={user} />
         )}
       </main>
 
