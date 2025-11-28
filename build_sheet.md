@@ -19,7 +19,7 @@ Visibility: Public
 
 ---
 
-## Safety & Legal (MANDATORY)
+## Safety & Legal
 - This project is for training in isolated, controlled, air-gapped, and open environments.
 - Never connect the lab to production networks or the Internet.
 - Use synthetic targets and payloads, unless explicit authorization has been granted for testing against a target.
@@ -60,10 +60,7 @@ Visibility: Public
 
 ---
 
-## Initial file contents (copy these into files exactly)
-
-Notes:
-- The snippets below are minimal, intentionally safe (no external network allowed), and designed to run locally or inside Docker Compose.
+## Initial file contents (copy these, or make improvements)
 
 README.md (brief)
 ```markdown
