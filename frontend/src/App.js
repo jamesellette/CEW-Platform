@@ -4,11 +4,14 @@ import ScenarioEditor from './components/ScenarioEditor';
 import TopologySelector from './components/TopologySelector';
 import Login from './components/Login';
 import InstructorControls from './components/InstructorControls';
+import Dashboard from './components/Dashboard';
+import AuditLogs from './components/AuditLogs';
+import UserManagement from './components/UserManagement';
 import { authApi } from './api';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('list'); // 'list', 'editor', or 'topologies'
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -74,6 +77,9 @@ export default function App() {
     return <Login onLogin={handleLogin} />;
   }
 
+  const isInstructorOrAdmin = ['admin', 'instructor'].includes(user.role);
+  const isAdmin = user.role === 'admin';
+
   return (
     <div style={containerStyle}>
       <header style={headerStyle}>
@@ -94,11 +100,49 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {/* Navigation tabs */}
+        <nav style={navStyle}>
+          {isInstructorOrAdmin && (
+            <button
+              onClick={() => setView('dashboard')}
+              style={view === 'dashboard' ? navButtonActiveStyle : navButtonStyle}
+            >
+              📊 Dashboard
+            </button>
+          )}
+          <button
+            onClick={() => setView('list')}
+            style={view === 'list' ? navButtonActiveStyle : navButtonStyle}
+          >
+            📝 Scenarios
+          </button>
+          {isInstructorOrAdmin && (
+            <button
+              onClick={() => setView('audit')}
+              style={view === 'audit' ? navButtonActiveStyle : navButtonStyle}
+            >
+              📋 Audit Logs
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setView('users')}
+              style={view === 'users' ? navButtonActiveStyle : navButtonStyle}
+            >
+              👥 Users
+            </button>
+          )}
+        </nav>
       </header>
 
       <main style={mainStyle}>
-        {/* Instructor Controls - only shown for instructors/admins */}
-        <InstructorControls user={user} />
+        {view === 'dashboard' && isInstructorOrAdmin && (
+          <>
+            <Dashboard user={user} />
+            <InstructorControls user={user} />
+          </>
+        )}
 
         {view === 'list' && (
           <>
@@ -129,6 +173,12 @@ export default function App() {
             onCancel={handleCancel}
           />
         )}
+        {view === 'audit' && isInstructorOrAdmin && (
+          <AuditLogs />
+        )}
+        {view === 'users' && isAdmin && (
+          <UserManagement currentUser={user} />
+        )}
       </main>
 
       <footer style={footerStyle}>
@@ -142,7 +192,7 @@ export default function App() {
 
 const containerStyle = {
   fontFamily: 'Arial, sans-serif',
-  maxWidth: '1000px',
+  maxWidth: '1200px',
   margin: '0 auto',
   padding: '20px',
 };
@@ -151,6 +201,28 @@ const headerStyle = {
   borderBottom: '2px solid #333',
   paddingBottom: '16px',
   marginBottom: '20px',
+};
+
+const navStyle = {
+  marginTop: '16px',
+  display: 'flex',
+  gap: '8px',
+};
+
+const navButtonStyle = {
+  padding: '8px 16px',
+  backgroundColor: '#e9ecef',
+  color: '#333',
+  border: 'none',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  fontSize: '14px',
+};
+
+const navButtonActiveStyle = {
+  ...navButtonStyle,
+  backgroundColor: '#007bff',
+  color: 'white',
 };
 
 const userInfoStyle = {

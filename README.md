@@ -2,17 +2,37 @@
 
 A training-focused Cyber & Electronic Warfare offensive planning platform.
 
-## Notes
+## ⚠️ Safety Notice
 
-- This project is intended for training in controlled, air-gapped, and open environments.
-- Do NOT connect to operational networks or real-world targets, without acknowledging the risks.
-- Use synthetic target assets and isolated lab infrastructure.
+**This platform is for TRAINING PURPOSES ONLY in controlled, air-gapped environments.**
 
-## Starter scaffold
+- Do NOT connect to operational networks or real-world targets
+- Use synthetic target assets and isolated lab infrastructure
+- Review the [Safety Checklist](docs/safety_checklist.md) before use
+- The platform enforces air-gap and RF safety constraints by default
 
-- `backend/`: FastAPI service for scenarios & orchestration API.
-- `frontend/`: React UI placeholder for scenario editor and planner.
-- `docker-compose.yml`: local orchestration for dev.
+## Features
+
+- **Scenario Editor**: Create and manage training scenarios with network topologies
+- **Lab Orchestration**: Isolated container-based training environments
+- **Authentication & RBAC**: JWT-based auth with Admin/Instructor/Trainee roles
+- **Instructor Controls**: Real-time lab monitoring and emergency kill switch
+- **Audit Logging**: Complete activity tracking for compliance
+- **User Management**: Admin panel for user administration
+
+## Documentation
+
+- [Architecture Overview](docs/architecture.md) - System design and components
+- [Safety Checklist](docs/safety_checklist.md) - Required safety procedures
+- [Operator Guide](docs/operator_guide.md) - Quick-start and operations guide
+- [Future Roadmap](docs/roadmap.md) - Proposed enhancements and future features
+
+## Project Structure
+
+- `backend/`: FastAPI service for scenarios & orchestration API
+- `frontend/`: React UI for scenario editor, dashboard, and admin panels
+- `docker-compose.yml`: Local orchestration for development
+- `docs/`: Documentation and safety guidelines
 
 ## Running locally
 
@@ -56,6 +76,16 @@ cd frontend
 npm ci
 npm test
 ```
+
+## Default Accounts
+
+| Username | Password | Role |
+|----------|----------|------|
+| admin | admin123 | Administrator |
+| instructor | instructor123 | Instructor |
+| trainee | trainee123 | Trainee |
+
+**⚠️ Change default passwords in production!**
 
 ## License
 

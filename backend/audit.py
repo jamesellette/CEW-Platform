@@ -20,6 +20,7 @@ class AuditAction:
     VIEW_TOPOLOGY = "view_topology"
     CREATE_USER = "create_user"
     UPDATE_USER = "update_user"
+    DELETE_USER = "delete_user"
     FAILED_LOGIN = "failed_login"
     ACCESS_DENIED = "access_denied"
     ACTIVATE_SCENARIO = "activate_scenario"

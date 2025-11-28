@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import App from './App';
 
 // Mock localStorage
@@ -13,28 +13,47 @@ const localStorageMock = {
 Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 
 // Mock the API module to avoid network requests in tests
-jest.mock('./api', () => ({
-  scenarioApi: {
-    list: jest.fn().mockResolvedValue({ data: [] }),
-    get: jest.fn(),
-    create: jest.fn(),
-    update: jest.fn(),
-    delete: jest.fn(),
-    listActive: jest.fn().mockResolvedValue({ data: [] }),
-  },
-  topologyApi: {
-    list: jest.fn().mockResolvedValue({ data: [] }),
-    get: jest.fn(),
-  },
-  authApi: {
-    getUser: jest.fn(),
-    getToken: jest.fn(),
-    login: jest.fn(),
-    logout: jest.fn(),
-    setToken: jest.fn(),
-    setUser: jest.fn(),
-  },
-}));
+jest.mock('./api', () => {
+  const mockApi = {
+    get: jest.fn().mockResolvedValue({
+      data: {
+        status: 'operational',
+        scenarios: { total: 0, active: 0 },
+        labs: { total: 0, active: 0, total_containers: 0, total_networks: 0 },
+        safety: { air_gap_enforced: true, external_network_blocked: true, real_rf_blocked: true }
+      }
+    }),
+  };
+  return {
+    default: mockApi,
+    scenarioApi: {
+      list: jest.fn().mockResolvedValue({ data: [] }),
+      get: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      listActive: jest.fn().mockResolvedValue({ data: [] }),
+    },
+    topologyApi: {
+      list: jest.fn().mockResolvedValue({ data: [] }),
+      get: jest.fn(),
+    },
+    labApi: {
+      list: jest.fn().mockResolvedValue({ data: [] }),
+      listActive: jest.fn().mockResolvedValue({ data: [] }),
+      get: jest.fn(),
+      stop: jest.fn(),
+    },
+    authApi: {
+      getUser: jest.fn(),
+      getToken: jest.fn(),
+      login: jest.fn(),
+      logout: jest.fn(),
+      setToken: jest.fn(),
+      setUser: jest.fn(),
+    },
+  };
+});
 
 // Import the mocked module
 import { authApi } from './api';
@@ -79,8 +98,26 @@ describe('App - Authenticated', () => {
     });
   });
 
-  test('renders create scenario button when logged in', async () => {
+  test('renders dashboard for admin users', async () => {
     render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/Dashboard/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders scenarios tab when logged in', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/📝 Scenarios/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders create scenario button when on scenarios view', async () => {
+    render(<App />);
+    // Click on Scenarios tab
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/📝 Scenarios/i));
+    });
     await waitFor(() => {
       expect(screen.getByText(/Create New Scenario/i)).toBeInTheDocument();
     });

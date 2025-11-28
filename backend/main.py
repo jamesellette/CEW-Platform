@@ -12,11 +12,12 @@ from datetime import timedelta
 from auth import (
     User, Token, LoginRequest, UserCreate, UserRole,
     authenticate_user, create_access_token, get_current_user,
-    require_role, create_user, ACCESS_TOKEN_EXPIRE_MINUTES
+    require_role, create_user, list_users, delete_user, ACCESS_TOKEN_EXPIRE_MINUTES
 )
 from audit import (
     AuditLog, AuditAction, log_action, get_audit_logs
 )
+from orchestrator import orchestrator, LabStatus
 
 app = FastAPI(title="CEW Training Backend (prototype)")
 
@@ -80,6 +81,34 @@ def health_check() -> dict:
     return {"status": "healthy"}
 
 
+@app.get("/system/status")
+async def system_status(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get system status overview (admin/instructor only)."""
+    active_labs = orchestrator.get_active_labs()
+    all_labs = orchestrator.get_all_labs()
+
+    return {
+        "status": "operational",
+        "scenarios": {
+            "total": len(db),
+            "active": len(active_scenarios)
+        },
+        "labs": {
+            "total": len(all_labs),
+            "active": len(active_labs),
+            "total_containers": sum(len(lab.containers) for lab in active_labs),
+            "total_networks": sum(len(lab.networks) for lab in active_labs)
+        },
+        "safety": {
+            "air_gap_enforced": True,
+            "external_network_blocked": True,
+            "real_rf_blocked": True
+        }
+    }
+
+
 # ============ Authentication Endpoints ============
 
 @app.post("/auth/login", response_model=Token)
@@ -135,6 +164,39 @@ def register_user(
         details=f"Created user with role: {new_user.role}"
     )
     return new_user
+
+
+@app.get("/auth/users", response_model=List[User])
+def get_all_users(
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+):
+    """List all users (admin only)."""
+    return list_users()
+
+
+@app.delete("/auth/users/{username}")
+def remove_user(
+    username: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+):
+    """Delete a user (admin only)."""
+    if username == current_user.username:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete your own account"
+        )
+
+    if not delete_user(username):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    log_action(
+        action=AuditAction.DELETE_USER,
+        username=current_user.username,
+        resource_type="user",
+        resource_id=username,
+        details=f"Deleted user: {username}"
+    )
+    return {"message": f"User {username} deleted successfully"}
 
 
 # ============ Audit Log Endpoints ============
@@ -334,6 +396,8 @@ def import_scenario(import_data: ScenarioImport) -> Scenario:
 
 # Track active scenarios (in production, this would be in Redis or similar)
 active_scenarios: dict[str, dict] = {}
+# Reverse mapping from lab_id to scenario_id for O(1) lookup
+lab_to_scenario: dict[str, str] = {}
 
 
 class ScenarioActivation(BaseModel):
@@ -341,8 +405,20 @@ class ScenarioActivation(BaseModel):
     activated_by: Optional[str] = None
 
 
+class LabInfo(BaseModel):
+    """Lab environment information."""
+    lab_id: str
+    scenario_id: str
+    scenario_name: str
+    activated_by: str
+    status: str
+    container_count: int
+    network_count: int
+    started_at: Optional[str] = None
+
+
 @app.post("/scenarios/{scenario_id}/activate")
-def activate_scenario(
+async def activate_scenario(
     scenario_id: str,
     current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
 ) -> dict:
@@ -354,26 +430,47 @@ def activate_scenario(
     if scenario_id in active_scenarios:
         raise HTTPException(status_code=400, detail="Scenario is already active")
 
-    active_scenarios[scenario_id] = {
-        "scenario_id": scenario_id,
-        "scenario_name": s.name,
-        "activated_by": current_user.username,
-        "status": "active"
-    }
+    try:
+        # Create lab environment using orchestrator
+        lab = await orchestrator.create_lab(
+            scenario_id=scenario_id,
+            scenario_name=s.name,
+            topology=s.topology,
+            constraints=s.constraints,
+            activated_by=current_user.username
+        )
 
-    log_action(
-        action=AuditAction.ACTIVATE_SCENARIO,
-        username=current_user.username,
-        resource_type="scenario",
-        resource_id=scenario_id,
-        details=f"Activated scenario: {s.name}"
-    )
+        active_scenarios[scenario_id] = {
+            "scenario_id": scenario_id,
+            "scenario_name": s.name,
+            "activated_by": current_user.username,
+            "status": "active",
+            "lab_id": lab.lab_id
+        }
+        # Add reverse mapping for O(1) lookup
+        lab_to_scenario[lab.lab_id] = scenario_id
 
-    return {"message": f"Scenario '{s.name}' activated", "status": "active"}
+        log_action(
+            action=AuditAction.ACTIVATE_SCENARIO,
+            username=current_user.username,
+            resource_type="scenario",
+            resource_id=scenario_id,
+            details=f"Activated scenario: {s.name} (lab_id: {lab.lab_id})"
+        )
+
+        return {
+            "message": f"Scenario '{s.name}' activated",
+            "status": "active",
+            "lab_id": lab.lab_id,
+            "containers": len(lab.containers),
+            "networks": len(lab.networks)
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/scenarios/{scenario_id}/deactivate")
-def deactivate_scenario(
+async def deactivate_scenario(
     scenario_id: str,
     current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
 ) -> dict:
@@ -382,6 +479,24 @@ def deactivate_scenario(
         raise HTTPException(status_code=400, detail="Scenario is not active")
 
     scenario_info = active_scenarios.pop(scenario_id)
+
+    # Stop the lab if it has one
+    if "lab_id" in scenario_info:
+        lab_id = scenario_info["lab_id"]
+        # Clean up reverse mapping
+        lab_to_scenario.pop(lab_id, None)
+        try:
+            await orchestrator.stop_lab(lab_id)
+        except Exception as e:
+            # Log error but don't fail - scenario is already deactivated
+            log_action(
+                action=AuditAction.DEACTIVATE_SCENARIO,
+                username=current_user.username,
+                resource_type="scenario",
+                resource_id=scenario_id,
+                details=f"Warning: Failed to stop lab: {e}",
+                success=False
+            )
 
     log_action(
         action=AuditAction.DEACTIVATE_SCENARIO,
@@ -395,25 +510,146 @@ def deactivate_scenario(
 
 
 @app.post("/kill-switch")
-def emergency_kill_switch(
+async def emergency_kill_switch(
     current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
 ) -> dict:
     """Emergency kill switch - deactivate ALL active scenarios immediately."""
     deactivated_count = len(active_scenarios)
     deactivated_scenarios = list(active_scenarios.keys())
 
-    # Clear all active scenarios
+    # Stop all labs via orchestrator
+    stopped_labs = await orchestrator.kill_all_labs(current_user.username)
+
+    # Clear all active scenarios and reverse mapping
     active_scenarios.clear()
+    lab_to_scenario.clear()
 
     log_action(
         action=AuditAction.KILL_SWITCH,
         username=current_user.username,
         resource_type="system",
-        details=f"Emergency kill switch activated. Deactivated {deactivated_count} scenarios."
+        details=f"Emergency kill switch activated. Deactivated {deactivated_count} scenarios, stopped {len(stopped_labs)} labs."
     )
 
     return {
         "message": "Emergency kill switch activated",
         "deactivated_count": deactivated_count,
-        "deactivated_scenarios": deactivated_scenarios
+        "deactivated_scenarios": deactivated_scenarios,
+        "stopped_labs": stopped_labs
     }
+
+
+# ============ Lab Management Endpoints ============
+
+@app.get("/labs", response_model=List[LabInfo])
+async def list_labs(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[LabInfo]:
+    """List all lab environments (active and stopped)."""
+    labs = orchestrator.get_all_labs()
+    return [
+        LabInfo(
+            lab_id=lab.lab_id,
+            scenario_id=lab.scenario_id,
+            scenario_name=lab.scenario_name,
+            activated_by=lab.activated_by,
+            status=lab.status.value,
+            container_count=len(lab.containers),
+            network_count=len(lab.networks),
+            started_at=lab.started_at.isoformat() if lab.started_at else None
+        )
+        for lab in labs
+    ]
+
+
+@app.get("/labs/active", response_model=List[LabInfo])
+async def list_active_labs(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[LabInfo]:
+    """List all currently active lab environments."""
+    labs = orchestrator.get_active_labs()
+    return [
+        LabInfo(
+            lab_id=lab.lab_id,
+            scenario_id=lab.scenario_id,
+            scenario_name=lab.scenario_name,
+            activated_by=lab.activated_by,
+            status=lab.status.value,
+            container_count=len(lab.containers),
+            network_count=len(lab.networks),
+            started_at=lab.started_at.isoformat() if lab.started_at else None
+        )
+        for lab in labs
+    ]
+
+
+@app.get("/labs/{lab_id}")
+async def get_lab(
+    lab_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get detailed information about a specific lab."""
+    lab = orchestrator.get_lab(lab_id)
+    if not lab:
+        raise HTTPException(status_code=404, detail="Lab not found")
+
+    return {
+        "lab_id": lab.lab_id,
+        "scenario_id": lab.scenario_id,
+        "scenario_name": lab.scenario_name,
+        "activated_by": lab.activated_by,
+        "status": lab.status.value,
+        "started_at": lab.started_at.isoformat() if lab.started_at else None,
+        "error_message": lab.error_message,
+        "containers": [
+            {
+                "container_id": c.container_id,
+                "node_id": c.node_id,
+                "hostname": c.hostname,
+                "image": c.image,
+                "ip_address": c.ip_address,
+                "status": c.status
+            }
+            for c in lab.containers
+        ],
+        "networks": [
+            {
+                "network_id": n.network_id,
+                "name": n.name,
+                "subnet": n.subnet,
+                "isolated": n.isolated
+            }
+            for n in lab.networks
+        ]
+    }
+
+
+@app.post("/labs/{lab_id}/stop")
+async def stop_lab(
+    lab_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Stop a specific lab environment."""
+    try:
+        lab = await orchestrator.stop_lab(lab_id)
+
+        # Also remove from active scenarios using O(1) reverse lookup
+        scenario_id = lab_to_scenario.pop(lab_id, None)
+        if scenario_id:
+            active_scenarios.pop(scenario_id, None)
+
+        log_action(
+            action=AuditAction.DEACTIVATE_SCENARIO,
+            username=current_user.username,
+            resource_type="lab",
+            resource_id=lab_id,
+            details=f"Stopped lab for scenario: {lab.scenario_name}"
+        )
+
+        return {
+            "message": "Lab stopped successfully",
+            "lab_id": lab_id,
+            "status": lab.status.value
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

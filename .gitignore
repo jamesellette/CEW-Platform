@@ -46,3 +46,4 @@ Thumbs.db
 
 # Database
 db_data/
+*.db

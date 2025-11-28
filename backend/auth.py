@@ -210,5 +210,21 @@ def require_role(allowed_roles: list[str]):
     return role_checker
 
 
+def list_users() -> list[User]:
+    """List all users (excluding passwords)."""
+    return [
+        User(**user.model_dump(exclude={"hashed_password"}))
+        for user in users_db.values()
+    ]
+
+
+def delete_user(username: str) -> bool:
+    """Delete a user by username."""
+    if username in users_db:
+        del users_db[username]
+        return True
+    return False
+
+
 # Initialize default users on module load
 _init_default_users()

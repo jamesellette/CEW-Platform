@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
-from main import app, db, active_scenarios
+from main import app, db, active_scenarios, lab_to_scenario
+from orchestrator import orchestrator
 
 client = TestClient(app)
 
@@ -320,7 +321,7 @@ def get_admin_token():
 
 def test_activate_scenario():
     db.clear()
-    active_scenarios.clear()
+    active_scenarios.clear(); lab_to_scenario.clear(); orchestrator._labs.clear()
 
     # Create a scenario first
     scenario_data = {"name": "Activation Test"}
@@ -339,7 +340,7 @@ def test_activate_scenario():
 
 def test_activate_scenario_already_active():
     db.clear()
-    active_scenarios.clear()
+    active_scenarios.clear(); lab_to_scenario.clear(); orchestrator._labs.clear()
 
     # Create and activate a scenario
     scenario_data = {"name": "Already Active Test"}
@@ -363,7 +364,7 @@ def test_activate_scenario_already_active():
 
 def test_deactivate_scenario():
     db.clear()
-    active_scenarios.clear()
+    active_scenarios.clear(); lab_to_scenario.clear(); orchestrator._labs.clear()
 
     # Create and activate a scenario
     scenario_data = {"name": "Deactivation Test"}
@@ -387,7 +388,7 @@ def test_deactivate_scenario():
 
 def test_kill_switch():
     db.clear()
-    active_scenarios.clear()
+    active_scenarios.clear(); lab_to_scenario.clear(); orchestrator._labs.clear()
 
     # Create and activate multiple scenarios
     token = get_admin_token()
@@ -412,7 +413,7 @@ def test_kill_switch():
 
 def test_list_active_scenarios():
     db.clear()
-    active_scenarios.clear()
+    active_scenarios.clear(); lab_to_scenario.clear(); orchestrator._labs.clear()
 
     # Create and activate a scenario
     scenario_data = {"name": "Active List Test"}

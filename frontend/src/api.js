@@ -36,6 +36,13 @@ export const authApi = {
   },
 };
 
+// User Management API (admin only)
+export const userApi = {
+  list: () => api.get('/auth/users'),
+  create: (userData) => api.post('/auth/register', userData),
+  delete: (username) => api.delete(`/auth/users/${username}`),
+};
+
 // Scenario API
 export const scenarioApi = {
   list: () => api.get('/scenarios'),
@@ -55,6 +62,14 @@ export const scenarioApi = {
 export const topologyApi = {
   list: () => api.get('/topologies'),
   get: (filename) => api.get(`/topologies/${filename}`),
+};
+
+// Lab API - for detailed lab management
+export const labApi = {
+  list: () => api.get('/labs'),
+  listActive: () => api.get('/labs/active'),
+  get: (labId) => api.get(`/labs/${labId}`),
+  stop: (labId) => api.post(`/labs/${labId}/stop`),
 };
 
 // Kill switch API
