@@ -705,7 +705,7 @@ async def recover_lab_containers(
     try:
         restarted = await orchestrator.restart_unhealthy_containers(lab_id)
         log_action(
-            action=AuditAction.ACTIVATE_SCENARIO,
+            action=AuditAction.LAB_RECOVERY,
             username=current_user.username,
             resource_type="lab",
             resource_id=lab_id,
