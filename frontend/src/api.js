@@ -257,6 +257,82 @@ export const marketplaceApi = {
   getPending: () => api.get('/marketplace/pending'),
 };
 
+// Multi-User Session API - for collaborative training sessions
+export const sessionApi = {
+  // Session management
+  createSession: (name, description, labId, scenarioId, sessionType, maxParticipants = 10, settings = null) =>
+    api.post('/sessions', {
+      name,
+      description,
+      lab_id: labId,
+      scenario_id: scenarioId,
+      session_type: sessionType,
+      max_participants: maxParticipants,
+      settings,
+    }),
+
+  listSessions: (sessionType = null, activeOnly = true) =>
+    api.get('/sessions', { params: { session_type: sessionType, active_only: activeOnly } }),
+
+  getMySessions: () => api.get('/sessions/me'),
+
+  getSession: (sessionId) => api.get(`/sessions/${sessionId}`),
+
+  startSession: (sessionId) => api.post(`/sessions/${sessionId}/start`),
+
+  endSession: (sessionId) => api.post(`/sessions/${sessionId}/end`),
+
+  deleteSession: (sessionId) => api.delete(`/sessions/${sessionId}`),
+
+  // Participant management
+  addParticipant: (sessionId, username, displayName, teamRole, permissions = null) =>
+    api.post(`/sessions/${sessionId}/participants`, {
+      username,
+      display_name: displayName,
+      team_role: teamRole,
+      permissions,
+    }),
+
+  joinSession: (sessionId) => api.post(`/sessions/${sessionId}/join`),
+
+  leaveSession: (sessionId) => api.post(`/sessions/${sessionId}/leave`),
+
+  removeParticipant: (sessionId, participantId) =>
+    api.delete(`/sessions/${sessionId}/participants/${participantId}`),
+
+  // Team management
+  createTeam: (sessionId, name, role, color = '#6c757d') =>
+    api.post(`/sessions/${sessionId}/teams`, {}, { params: { name, role, color } }),
+
+  assignToTeam: (sessionId, teamId, participantId) =>
+    api.post(`/sessions/${sessionId}/teams/${teamId}/assign/${participantId}`),
+
+  updateTeamScore: (sessionId, teamId, points) =>
+    api.post(`/sessions/${sessionId}/teams/${teamId}/score`, {}, { params: { points } }),
+
+  // Objectives
+  addObjective: (sessionId, name, description, points, teamRole = null) =>
+    api.post(`/sessions/${sessionId}/objectives`, {
+      name,
+      description,
+      points,
+      team_role: teamRole,
+    }),
+
+  completeObjective: (sessionId, objectiveId, teamId) =>
+    api.post(`/sessions/${sessionId}/objectives/${objectiveId}/complete`, {}, { params: { team_id: teamId } }),
+
+  // Chat
+  sendMessage: (sessionId, content, isTeamOnly = false) =>
+    api.post(`/sessions/${sessionId}/messages`, { content, is_team_only: isTeamOnly }),
+
+  getMessages: (sessionId, limit = 50, after = null) =>
+    api.get(`/sessions/${sessionId}/messages`, { params: { limit, after } }),
+
+  // Scores
+  getScores: (sessionId) => api.get(`/sessions/${sessionId}/scores`),
+};
+
 // Kill switch API
 export const killSwitchApi = {
   activate: () => api.post('/kill-switch'),

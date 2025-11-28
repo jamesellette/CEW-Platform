@@ -27,6 +27,9 @@ from progress_tracking import progress_tracker
 from marketplace import (
     marketplace, TemplateCategory, DifficultyLevel, TemplateStatus
 )
+from multi_user_sessions import (
+    multi_user_manager, TeamRole, SessionType
+)
 from contextlib import asynccontextmanager
 
 
@@ -1644,3 +1647,347 @@ async def get_pending_templates(
     """Get templates pending review (admin only)."""
     templates = marketplace.list_templates(status=TemplateStatus.PENDING_REVIEW)
     return [t.to_dict() for t in templates]
+
+
+# ============ Multi-User Session Endpoints ============
+
+
+class CreateSessionRequest(BaseModel):
+    """Request to create a multi-user session."""
+    name: str
+    description: str
+    lab_id: str
+    scenario_id: str
+    session_type: str
+    max_participants: int = 10
+    settings: Optional[dict] = None
+
+
+class AddParticipantRequest(BaseModel):
+    """Request to add a participant."""
+    username: str
+    display_name: str
+    team_role: str
+    permissions: Optional[dict] = None
+
+
+class SendMessageRequest(BaseModel):
+    """Request to send a chat message."""
+    content: str
+    is_team_only: bool = False
+
+
+class AddObjectiveRequest(BaseModel):
+    """Request to add an objective."""
+    name: str
+    description: str
+    points: int
+    team_role: Optional[str] = None
+
+
+@app.post("/sessions")
+async def create_multi_user_session(
+    request: CreateSessionRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Create a new multi-user session."""
+    try:
+        session_type = SessionType(request.session_type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session type")
+
+    try:
+        session = multi_user_manager.create_session(
+            name=request.name,
+            description=request.description,
+            lab_id=request.lab_id,
+            scenario_id=request.scenario_id,
+            session_type=session_type,
+            host_username=current_user.username,
+            max_participants=request.max_participants,
+            settings=request.settings
+        )
+        return session.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/sessions")
+async def list_multi_user_sessions(
+    session_type: Optional[str] = None,
+    active_only: bool = True,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List multi-user sessions."""
+    stype = SessionType(session_type) if session_type else None
+    sessions = multi_user_manager.list_sessions(
+        session_type=stype,
+        active_only=active_only
+    )
+    return [s.to_dict() for s in sessions]
+
+
+@app.get("/sessions/me")
+async def get_my_sessions(
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get sessions the current user is participating in."""
+    sessions = multi_user_manager.get_user_sessions(current_user.username)
+    return [s.to_dict() for s in sessions]
+
+
+@app.get("/sessions/{session_id}")
+async def get_multi_user_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get a multi-user session by ID."""
+    session = multi_user_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session.to_dict(include_chat=True)
+
+
+@app.post("/sessions/{session_id}/start")
+async def start_multi_user_session(
+    session_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Start a multi-user session."""
+    session = multi_user_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.host_username != current_user.username and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only host or admin can start session")
+
+    updated = multi_user_manager.start_session(session_id)
+    return updated.to_dict()
+
+
+@app.post("/sessions/{session_id}/end")
+async def end_multi_user_session(
+    session_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """End a multi-user session."""
+    session = multi_user_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.host_username != current_user.username and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only host or admin can end session")
+
+    updated = multi_user_manager.end_session(session_id)
+    return updated.to_dict()
+
+
+@app.delete("/sessions/{session_id}")
+async def delete_multi_user_session(
+    session_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Delete a multi-user session (admin only)."""
+    if not multi_user_manager.delete_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"message": "Session deleted"}
+
+
+@app.post("/sessions/{session_id}/participants")
+async def add_session_participant(
+    session_id: str,
+    request: AddParticipantRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Add a participant to a session."""
+    try:
+        team_role = TeamRole(request.team_role)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid team role")
+
+    try:
+        participant = multi_user_manager.add_participant(
+            session_id=session_id,
+            username=request.username,
+            display_name=request.display_name,
+            team_role=team_role,
+            permissions=request.permissions
+        )
+        if not participant:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return participant.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/sessions/{session_id}/join")
+async def join_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Join a session as the current user."""
+    participant = multi_user_manager.join_session(session_id, current_user.username)
+    if not participant:
+        raise HTTPException(status_code=404, detail="Not a participant in this session")
+    return participant.to_dict()
+
+
+@app.post("/sessions/{session_id}/leave")
+async def leave_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Leave a session."""
+    participant = multi_user_manager.leave_session(session_id, current_user.username)
+    if not participant:
+        raise HTTPException(status_code=404, detail="Not a participant in this session")
+    return participant.to_dict()
+
+
+@app.delete("/sessions/{session_id}/participants/{participant_id}")
+async def remove_session_participant(
+    session_id: str,
+    participant_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Remove a participant from a session."""
+    if not multi_user_manager.remove_participant(session_id, participant_id):
+        raise HTTPException(status_code=404, detail="Participant not found")
+    return {"message": "Participant removed"}
+
+
+@app.post("/sessions/{session_id}/teams")
+async def create_session_team(
+    session_id: str,
+    name: str,
+    role: str,
+    color: str = "#6c757d",
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Create a custom team in a session."""
+    try:
+        team_role = TeamRole(role)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid team role")
+
+    team = multi_user_manager.create_team(session_id, name, team_role, color)
+    if not team:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return team.to_dict()
+
+
+@app.post("/sessions/{session_id}/teams/{team_id}/assign/{participant_id}")
+async def assign_participant_to_team(
+    session_id: str,
+    team_id: str,
+    participant_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Assign a participant to a team."""
+    if not multi_user_manager.assign_to_team(session_id, participant_id, team_id):
+        raise HTTPException(status_code=404, detail="Session, team, or participant not found")
+    return {"message": "Participant assigned to team"}
+
+
+@app.post("/sessions/{session_id}/teams/{team_id}/score")
+async def update_team_score(
+    session_id: str,
+    team_id: str,
+    points: int,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Update a team's score."""
+    team = multi_user_manager.update_team_score(session_id, team_id, points)
+    if not team:
+        raise HTTPException(status_code=404, detail="Session or team not found")
+    return team.to_dict()
+
+
+@app.post("/sessions/{session_id}/objectives")
+async def add_session_objective(
+    session_id: str,
+    request: AddObjectiveRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Add an objective to a session."""
+    team_role = TeamRole(request.team_role) if request.team_role else None
+
+    objective = multi_user_manager.add_objective(
+        session_id=session_id,
+        name=request.name,
+        description=request.description,
+        points=request.points,
+        team_role=team_role
+    )
+    if not objective:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return objective.to_dict()
+
+
+@app.post("/sessions/{session_id}/objectives/{objective_id}/complete")
+async def complete_session_objective(
+    session_id: str,
+    objective_id: str,
+    team_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Mark an objective as completed."""
+    try:
+        objective = multi_user_manager.complete_objective(session_id, objective_id, team_id)
+        if not objective:
+            raise HTTPException(status_code=404, detail="Objective not found")
+        return objective.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/sessions/{session_id}/messages")
+async def send_session_message(
+    session_id: str,
+    request: SendMessageRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Send a chat message in a session."""
+    message = multi_user_manager.send_message(
+        session_id=session_id,
+        sender_username=current_user.username,
+        sender_display_name=current_user.username,
+        content=request.content,
+        is_team_only=request.is_team_only
+    )
+    if not message:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return message.to_dict()
+
+
+@app.get("/sessions/{session_id}/messages")
+async def get_session_messages(
+    session_id: str,
+    limit: int = 50,
+    after: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get chat messages from a session."""
+    messages = multi_user_manager.get_messages(
+        session_id=session_id,
+        username=current_user.username,
+        limit=limit,
+        after=after
+    )
+    return [m.to_dict() for m in messages]
+
+
+@app.get("/sessions/{session_id}/scores")
+async def get_session_scores(
+    session_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get current scores for all teams in a session."""
+    session = multi_user_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return {
+        "teams": [t.to_dict() for t in session.teams.values()],
+        "objectives": [o.to_dict() for o in session.objectives]
+    }
