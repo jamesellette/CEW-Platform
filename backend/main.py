@@ -1,9 +1,11 @@
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
 import json
+import yaml
 from pathlib import Path
 from datetime import timedelta
 
@@ -204,6 +206,14 @@ def list_scenarios() -> List[Scenario]:
     return list(db.values())
 
 
+@app.get("/scenarios/active")
+def list_active_scenarios(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[dict]:
+    """List all currently active scenarios (instructor/admin only)."""
+    return list(active_scenarios.values())
+
+
 @app.get("/scenarios/{scenario_id}", response_model=Scenario)
 def get_scenario(scenario_id: str) -> Scenario:
     s = db.get(scenario_id)
@@ -244,3 +254,166 @@ def delete_scenario(scenario_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Scenario not found")
     del db[scenario_id]
     return {"message": "Scenario deleted successfully"}
+
+
+# ============ Scenario Export/Import Endpoints ============
+
+@app.get("/scenarios/{scenario_id}/export")
+def export_scenario(
+    scenario_id: str,
+    format: str = "json"
+) -> Response:
+    """Export a scenario as JSON or YAML."""
+    s = db.get(scenario_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    scenario_data = s.model_dump()
+
+    if format.lower() == "yaml":
+        content = yaml.dump(scenario_data, default_flow_style=False, allow_unicode=True)
+        return Response(
+            content=content,
+            media_type="application/x-yaml",
+            headers={
+                "Content-Disposition": f'attachment; filename="{s.name}.yaml"'
+            }
+        )
+    else:
+        content = json.dumps(scenario_data, indent=2)
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{s.name}.json"'
+            }
+        )
+
+
+class ScenarioImport(BaseModel):
+    content: str
+    format: str = "json"
+
+
+@app.post("/scenarios/import", response_model=Scenario)
+def import_scenario(import_data: ScenarioImport) -> Scenario:
+    """Import a scenario from JSON or YAML content."""
+    try:
+        if import_data.format.lower() == "yaml":
+            scenario_data = yaml.safe_load(import_data.content)
+        else:
+            scenario_data = json.loads(import_data.content)
+    except (json.JSONDecodeError, yaml.YAMLError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {import_data.format.upper()} format: {str(e)}"
+        )
+
+    # Validate required fields
+    if "name" not in scenario_data:
+        raise HTTPException(status_code=400, detail="Scenario must have a name")
+
+    # Create new scenario with fresh ID
+    s = Scenario(
+        id=str(uuid.uuid4()),
+        name=scenario_data.get("name"),
+        description=scenario_data.get("description", ""),
+        topology=scenario_data.get("topology", {}),
+        constraints=scenario_data.get("constraints", {}),
+        created_by=scenario_data.get("created_by")
+    )
+
+    # Validate air-gap constraints
+    validate_air_gap(s.constraints)
+
+    db[s.id] = s
+    return s
+
+
+# ============ Kill Switch / Emergency Controls ============
+
+# Track active scenarios (in production, this would be in Redis or similar)
+active_scenarios: dict[str, dict] = {}
+
+
+class ScenarioActivation(BaseModel):
+    scenario_id: str
+    activated_by: Optional[str] = None
+
+
+@app.post("/scenarios/{scenario_id}/activate")
+def activate_scenario(
+    scenario_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Activate a scenario for training (instructor/admin only)."""
+    s = db.get(scenario_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    if scenario_id in active_scenarios:
+        raise HTTPException(status_code=400, detail="Scenario is already active")
+
+    active_scenarios[scenario_id] = {
+        "scenario_id": scenario_id,
+        "scenario_name": s.name,
+        "activated_by": current_user.username,
+        "status": "active"
+    }
+
+    log_action(
+        action=AuditAction.ACTIVATE_SCENARIO,
+        username=current_user.username,
+        resource_type="scenario",
+        resource_id=scenario_id,
+        details=f"Activated scenario: {s.name}"
+    )
+
+    return {"message": f"Scenario '{s.name}' activated", "status": "active"}
+
+
+@app.post("/scenarios/{scenario_id}/deactivate")
+def deactivate_scenario(
+    scenario_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Deactivate a running scenario (instructor/admin only)."""
+    if scenario_id not in active_scenarios:
+        raise HTTPException(status_code=400, detail="Scenario is not active")
+
+    scenario_info = active_scenarios.pop(scenario_id)
+
+    log_action(
+        action=AuditAction.DEACTIVATE_SCENARIO,
+        username=current_user.username,
+        resource_type="scenario",
+        resource_id=scenario_id,
+        details=f"Deactivated scenario: {scenario_info['scenario_name']}"
+    )
+
+    return {"message": "Scenario deactivated", "status": "inactive"}
+
+
+@app.post("/kill-switch")
+def emergency_kill_switch(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Emergency kill switch - deactivate ALL active scenarios immediately."""
+    deactivated_count = len(active_scenarios)
+    deactivated_scenarios = list(active_scenarios.keys())
+
+    # Clear all active scenarios
+    active_scenarios.clear()
+
+    log_action(
+        action=AuditAction.KILL_SWITCH,
+        username=current_user.username,
+        resource_type="system",
+        details=f"Emergency kill switch activated. Deactivated {deactivated_count} scenarios."
+    )
+
+    return {
+        "message": "Emergency kill switch activated",
+        "deactivated_count": deactivated_count,
+        "deactivated_scenarios": deactivated_scenarios
+    }

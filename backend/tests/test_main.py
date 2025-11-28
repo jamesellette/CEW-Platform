@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from main import app, db
+from main import app, db, active_scenarios
 
 client = TestClient(app)
 
@@ -159,6 +159,93 @@ def test_delete_scenario_not_found():
     assert r.status_code == 404
 
 
+# ============ Scenario Export/Import Tests ============
+
+def test_export_scenario_json():
+    db.clear()
+    # Create a scenario first
+    scenario_data = {
+        "name": "Export Test",
+        "description": "A scenario to export"
+    }
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    # Export as JSON
+    r = client.get(f"/scenarios/{scenario_id}/export?format=json")
+    assert r.status_code == 200
+    assert "application/json" in r.headers["content-type"]
+    assert "Export Test" in r.text
+
+
+def test_export_scenario_yaml():
+    db.clear()
+    # Create a scenario first
+    scenario_data = {
+        "name": "YAML Export Test",
+        "description": "A scenario to export as YAML"
+    }
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    # Export as YAML
+    r = client.get(f"/scenarios/{scenario_id}/export?format=yaml")
+    assert r.status_code == 200
+    assert "application/x-yaml" in r.headers["content-type"]
+    assert "YAML Export Test" in r.text
+
+
+def test_export_scenario_not_found():
+    db.clear()
+    r = client.get("/scenarios/nonexistent-id/export")
+    assert r.status_code == 404
+
+
+def test_import_scenario_json():
+    db.clear()
+    import_data = {
+        "content": '{"name": "Imported Scenario", "description": "From JSON"}',
+        "format": "json"
+    }
+    r = client.post("/scenarios/import", json=import_data)
+    assert r.status_code == 200
+    assert r.json()["name"] == "Imported Scenario"
+    assert r.json()["id"] is not None
+
+
+def test_import_scenario_yaml():
+    db.clear()
+    import_data = {
+        "content": "name: YAML Imported\ndescription: From YAML",
+        "format": "yaml"
+    }
+    r = client.post("/scenarios/import", json=import_data)
+    assert r.status_code == 200
+    assert r.json()["name"] == "YAML Imported"
+
+
+def test_import_scenario_invalid_json():
+    db.clear()
+    import_data = {
+        "content": "not valid json{",
+        "format": "json"
+    }
+    r = client.post("/scenarios/import", json=import_data)
+    assert r.status_code == 400
+    assert "Invalid JSON" in r.json()["detail"]
+
+
+def test_import_scenario_missing_name():
+    db.clear()
+    import_data = {
+        "content": '{"description": "No name field"}',
+        "format": "json"
+    }
+    r = client.post("/scenarios/import", json=import_data)
+    assert r.status_code == 400
+    assert "must have a name" in r.json()["detail"]
+
+
 # ============ Topology Template Tests ============
 
 def test_list_topologies():
@@ -218,3 +305,131 @@ def test_get_topology_path_traversal_blocked():
 
     # The actual path traversal protection is in the code
     # This verifies the endpoint doesn't expose parent directories
+
+
+# ============ Kill Switch / Activation Tests ============
+
+def get_admin_token():
+    """Helper to get admin auth token."""
+    response = client.post("/auth/login", json={
+        "username": "admin",
+        "password": "admin123"
+    })
+    return response.json()["access_token"]
+
+
+def test_activate_scenario():
+    db.clear()
+    active_scenarios.clear()
+
+    # Create a scenario first
+    scenario_data = {"name": "Activation Test"}
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    # Activate as admin
+    token = get_admin_token()
+    r = client.post(
+        f"/scenarios/{scenario_id}/activate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "active"
+
+
+def test_activate_scenario_already_active():
+    db.clear()
+    active_scenarios.clear()
+
+    # Create and activate a scenario
+    scenario_data = {"name": "Already Active Test"}
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    token = get_admin_token()
+    client.post(
+        f"/scenarios/{scenario_id}/activate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+
+    # Try to activate again
+    r = client.post(
+        f"/scenarios/{scenario_id}/activate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 400
+    assert "already active" in r.json()["detail"]
+
+
+def test_deactivate_scenario():
+    db.clear()
+    active_scenarios.clear()
+
+    # Create and activate a scenario
+    scenario_data = {"name": "Deactivation Test"}
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    token = get_admin_token()
+    client.post(
+        f"/scenarios/{scenario_id}/activate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+
+    # Deactivate
+    r = client.post(
+        f"/scenarios/{scenario_id}/deactivate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "inactive"
+
+
+def test_kill_switch():
+    db.clear()
+    active_scenarios.clear()
+
+    # Create and activate multiple scenarios
+    token = get_admin_token()
+
+    for i in range(3):
+        scenario_data = {"name": f"Kill Switch Test {i}"}
+        create_response = client.post("/scenarios", json=scenario_data)
+        scenario_id = create_response.json()["id"]
+        client.post(
+            f"/scenarios/{scenario_id}/activate",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+
+    # Kill switch
+    r = client.post(
+        "/kill-switch",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    assert r.json()["deactivated_count"] == 3
+
+
+def test_list_active_scenarios():
+    db.clear()
+    active_scenarios.clear()
+
+    # Create and activate a scenario
+    scenario_data = {"name": "Active List Test"}
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    token = get_admin_token()
+    client.post(
+        f"/scenarios/{scenario_id}/activate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+
+    # List active scenarios
+    r = client.get(
+        "/scenarios/active",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    assert len(r.json()) == 1
+    assert r.json()[0]["scenario_name"] == "Active List Test"

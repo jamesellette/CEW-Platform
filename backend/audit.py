@@ -22,6 +22,9 @@ class AuditAction:
     UPDATE_USER = "update_user"
     FAILED_LOGIN = "failed_login"
     ACCESS_DENIED = "access_denied"
+    ACTIVATE_SCENARIO = "activate_scenario"
+    DEACTIVATE_SCENARIO = "deactivate_scenario"
+    KILL_SWITCH = "kill_switch"
 
 
 class AuditLog(BaseModel):

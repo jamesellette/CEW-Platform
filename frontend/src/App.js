@@ -1,12 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ScenarioList from './components/ScenarioList';
 import ScenarioEditor from './components/ScenarioEditor';
 import TopologySelector from './components/TopologySelector';
+import Login from './components/Login';
+import InstructorControls from './components/InstructorControls';
+import { authApi } from './api';
 
 export default function App() {
+  const [user, setUser] = useState(null);
   const [view, setView] = useState('list'); // 'list', 'editor', or 'topologies'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  useEffect(() => {
+    // Check for existing session
+    const savedUser = authApi.getUser();
+    if (savedUser && authApi.getToken()) {
+      setUser(savedUser);
+    }
+  }, []);
+
+  const handleLogin = (userData) => {
+    setUser(userData);
+  };
+
+  const handleLogout = () => {
+    authApi.logout();
+    setUser(null);
+  };
 
   const handleCreateNew = () => {
     setEditingScenario(null);
@@ -48,16 +69,37 @@ export default function App() {
     setEditingScenario(null);
   };
 
+  // Show login if not authenticated
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
+  }
+
   return (
     <div style={containerStyle}>
       <header style={headerStyle}>
-        <h1>CEW Training Platform</h1>
-        <p style={{ color: '#666', margin: 0 }}>
-          Cyber &amp; Electronic Warfare Training Environment
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1>CEW Training Platform</h1>
+            <p style={{ color: '#666', margin: 0 }}>
+              Cyber &amp; Electronic Warfare Training Environment
+            </p>
+          </div>
+          <div style={userInfoStyle}>
+            <span>
+              👤 {user.full_name || user.username}
+              <span style={roleBadgeStyle}>{user.role}</span>
+            </span>
+            <button onClick={handleLogout} style={logoutButtonStyle}>
+              Logout
+            </button>
+          </div>
+        </div>
       </header>
 
       <main style={mainStyle}>
+        {/* Instructor Controls - only shown for instructors/admins */}
+        <InstructorControls user={user} />
+
         {view === 'list' && (
           <>
             <div style={{ marginBottom: '16px' }}>
@@ -109,6 +151,31 @@ const headerStyle = {
   borderBottom: '2px solid #333',
   paddingBottom: '16px',
   marginBottom: '20px',
+};
+
+const userInfoStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '12px',
+};
+
+const roleBadgeStyle = {
+  backgroundColor: '#007bff',
+  color: 'white',
+  padding: '2px 8px',
+  borderRadius: '12px',
+  fontSize: '12px',
+  marginLeft: '8px',
+  textTransform: 'uppercase',
+};
+
+const logoutButtonStyle = {
+  padding: '6px 12px',
+  backgroundColor: '#6c757d',
+  color: 'white',
+  border: 'none',
+  borderRadius: '4px',
+  cursor: 'pointer',
 };
 
 const mainStyle = {
