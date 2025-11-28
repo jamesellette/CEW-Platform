@@ -1,0 +1,87 @@
+{
+  "name": "Multi-Segment Enterprise Network",
+  "description": "Enterprise network simulation with multiple segments for advanced training",
+  "nodes": [
+    {
+      "id": "attacker-1",
+      "type": "host",
+      "image": "kali-linux:latest",
+      "hostname": "red-team-1",
+      "network": "external",
+      "ip": "192.168.1.100"
+    },
+    {
+      "id": "firewall-1",
+      "type": "firewall",
+      "image": "pfsense:latest",
+      "hostname": "fw-perimeter",
+      "networks": ["external", "dmz"],
+      "ip": "192.168.1.1"
+    },
+    {
+      "id": "webserver-1",
+      "type": "host",
+      "image": "nginx:latest",
+      "hostname": "web-server",
+      "network": "dmz",
+      "ip": "10.0.1.10"
+    },
+    {
+      "id": "firewall-2",
+      "type": "firewall",
+      "image": "pfsense:latest",
+      "hostname": "fw-internal",
+      "networks": ["dmz", "internal"],
+      "ip": "10.0.1.1"
+    },
+    {
+      "id": "workstation-1",
+      "type": "host",
+      "image": "windows-workstation:latest",
+      "hostname": "ws-001",
+      "network": "internal",
+      "ip": "10.0.2.100"
+    },
+    {
+      "id": "dc-1",
+      "type": "host",
+      "image": "windows-server:latest",
+      "hostname": "dc-01",
+      "network": "internal",
+      "ip": "10.0.2.10"
+    },
+    {
+      "id": "db-1",
+      "type": "host",
+      "image": "postgres:15",
+      "hostname": "db-server",
+      "network": "internal",
+      "ip": "10.0.2.20"
+    }
+  ],
+  "networks": [
+    {
+      "name": "external",
+      "subnet": "192.168.1.0/24",
+      "isolated": true,
+      "description": "Simulated external network (air-gapped)"
+    },
+    {
+      "name": "dmz",
+      "subnet": "10.0.1.0/24",
+      "isolated": true,
+      "description": "DMZ segment"
+    },
+    {
+      "name": "internal",
+      "subnet": "10.0.2.0/24",
+      "isolated": true,
+      "description": "Internal corporate network"
+    }
+  ],
+  "constraints": {
+    "allow_external_network": false,
+    "max_nodes": 20,
+    "timeout_minutes": 120
+  }
+}
