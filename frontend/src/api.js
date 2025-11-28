@@ -136,6 +136,64 @@ export const recordingApi = {
     }),
 };
 
+// Progress Tracking API - for trainee progress and assessments
+export const progressApi = {
+  // Exercise progress
+  startExercise: (exerciseId, exerciseName, scenarioId, objectivesTotal = 0, maxScore = 100) =>
+    api.post('/progress/exercises/start', {
+      exercise_id: exerciseId,
+      exercise_name: exerciseName,
+      scenario_id: scenarioId,
+      objectives_total: objectivesTotal,
+      max_score: maxScore,
+    }),
+
+  completeObjective: (progressId, objectiveId, pointsEarned = 0) =>
+    api.post(`/progress/exercises/${progressId}/objectives`, {
+      objective_id: objectiveId,
+      points_earned: pointsEarned,
+    }),
+
+  completeExercise: (progressId, finalScore = null, notes = '') =>
+    api.post(`/progress/exercises/${progressId}/complete`, { final_score: finalScore, notes }),
+
+  failExercise: (progressId, notes = '') =>
+    api.post(`/progress/exercises/${progressId}/fail`, {}, { params: { notes } }),
+
+  recordHint: (progressId) => api.post(`/progress/exercises/${progressId}/hint`),
+
+  getExerciseProgress: (progressId) => api.get(`/progress/exercises/${progressId}`),
+
+  // User progress
+  getMyProgress: () => api.get('/progress/me'),
+
+  getMyReport: () => api.get('/progress/me/report'),
+
+  getUserProgress: (username) => api.get(`/progress/users/${username}`),
+
+  getUserReport: (username) => api.get(`/progress/users/${username}/report`),
+
+  // Skills
+  assessSkill: (skillName, skillCategory, experienceGained = 0) =>
+    api.post('/progress/skills/assess', {
+      skill_name: skillName,
+      skill_category: skillCategory,
+      experience_gained: experienceGained,
+    }),
+
+  getUserSkills: (username) => api.get(`/progress/skills/${username}`),
+
+  // Leaderboard and badges
+  getLeaderboard: (metric = 'score', limit = 10) =>
+    api.get('/progress/leaderboard', { params: { metric, limit } }),
+
+  getBadges: () => api.get('/progress/badges'),
+
+  getSkillCategories: () => api.get('/progress/skill-categories'),
+
+  getAllProfiles: () => api.get('/progress/profiles'),
+};
+
 // Kill switch API
 export const killSwitchApi = {
   activate: () => api.post('/kill-switch'),

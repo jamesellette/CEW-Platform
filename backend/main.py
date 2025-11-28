@@ -23,6 +23,7 @@ from websocket_manager import (
     connection_manager, lab_monitor, handle_lab_websocket
 )
 from session_recording import session_recorder, EventType, RecordingState
+from progress_tracking import progress_tracker
 from contextlib import asynccontextmanager
 
 
@@ -1040,3 +1041,225 @@ async def get_current_recording(
         )
 
     return session.to_dict()
+
+
+# ============ Progress Tracking Endpoints ============
+
+
+class StartExerciseRequest(BaseModel):
+    """Request to start tracking an exercise."""
+    exercise_id: str
+    exercise_name: str
+    scenario_id: str
+    objectives_total: int = 0
+    max_score: float = 100.0
+
+
+class CompleteObjectiveRequest(BaseModel):
+    """Request to complete an objective."""
+    objective_id: str
+    points_earned: float = 0
+
+
+class CompleteExerciseRequest(BaseModel):
+    """Request to complete an exercise."""
+    final_score: Optional[float] = None
+    notes: str = ""
+
+
+class AssessSkillRequest(BaseModel):
+    """Request to assess a skill."""
+    skill_name: str
+    skill_category: str
+    experience_gained: int = 0
+
+
+@app.post("/progress/exercises/start")
+async def start_exercise_progress(
+    request: StartExerciseRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Start tracking progress for an exercise."""
+    progress = progress_tracker.start_exercise(
+        username=current_user.username,
+        exercise_id=request.exercise_id,
+        exercise_name=request.exercise_name,
+        scenario_id=request.scenario_id,
+        objectives_total=request.objectives_total,
+        max_score=request.max_score
+    )
+    return progress.to_dict()
+
+
+@app.post("/progress/exercises/{progress_id}/objectives")
+async def complete_objective(
+    progress_id: str,
+    request: CompleteObjectiveRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Mark an objective as completed."""
+    progress = progress_tracker.complete_objective(
+        progress_id=progress_id,
+        objective_id=request.objective_id,
+        points_earned=request.points_earned
+    )
+    if not progress:
+        raise HTTPException(status_code=404, detail="Progress not found")
+    return progress.to_dict()
+
+
+@app.post("/progress/exercises/{progress_id}/complete")
+async def complete_exercise_progress(
+    progress_id: str,
+    request: CompleteExerciseRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Mark an exercise as completed."""
+    progress = progress_tracker.complete_exercise(
+        progress_id=progress_id,
+        final_score=request.final_score,
+        notes=request.notes
+    )
+    if not progress:
+        raise HTTPException(status_code=404, detail="Progress not found")
+    return progress.to_dict()
+
+
+@app.post("/progress/exercises/{progress_id}/fail")
+async def fail_exercise_progress(
+    progress_id: str,
+    notes: str = "",
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Mark an exercise as failed."""
+    progress = progress_tracker.fail_exercise(progress_id, notes)
+    if not progress:
+        raise HTTPException(status_code=404, detail="Progress not found")
+    return progress.to_dict()
+
+
+@app.post("/progress/exercises/{progress_id}/hint")
+async def record_hint_used(
+    progress_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Record that a hint was used."""
+    progress = progress_tracker.add_hint_used(progress_id)
+    if not progress:
+        raise HTTPException(status_code=404, detail="Progress not found")
+    return progress.to_dict()
+
+
+@app.get("/progress/exercises/{progress_id}")
+async def get_exercise_progress(
+    progress_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get exercise progress by ID."""
+    progress = progress_tracker.get_exercise_progress(progress_id)
+    if not progress:
+        raise HTTPException(status_code=404, detail="Progress not found")
+    return progress.to_dict()
+
+
+@app.get("/progress/me")
+async def get_my_progress(
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get current user's exercise progress."""
+    progress_list = progress_tracker.get_user_progress(current_user.username)
+    return [p.to_dict() for p in progress_list]
+
+
+@app.get("/progress/me/report")
+async def get_my_progress_report(
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get comprehensive progress report for current user."""
+    return progress_tracker.get_progress_report(current_user.username)
+
+
+@app.get("/progress/users/{username}")
+async def get_user_progress(
+    username: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[dict]:
+    """Get a user's exercise progress (admin/instructor only)."""
+    progress_list = progress_tracker.get_user_progress(username)
+    return [p.to_dict() for p in progress_list]
+
+
+@app.get("/progress/users/{username}/report")
+async def get_user_progress_report(
+    username: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get comprehensive progress report for a user (admin/instructor only)."""
+    return progress_tracker.get_progress_report(username)
+
+
+@app.post("/progress/skills/assess")
+async def assess_skill(
+    request: AssessSkillRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Assess and update skill level."""
+    assessment = progress_tracker.assess_skill(
+        username=current_user.username,
+        skill_name=request.skill_name,
+        skill_category=request.skill_category,
+        experience_gained=request.experience_gained
+    )
+    return assessment.to_dict()
+
+
+@app.get("/progress/skills/{username}")
+async def get_user_skills(
+    username: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get a user's skill assessments (admin/instructor only)."""
+    profile = progress_tracker.get_profile(username)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {k: v.to_dict() for k, v in profile.skills.items()}
+
+
+@app.get("/progress/leaderboard")
+async def get_leaderboard(
+    metric: str = "score",
+    limit: int = 10,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get the leaderboard."""
+    if metric not in ["score", "exercises", "time"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid metric. Use 'score', 'exercises', or 'time'"
+        )
+    return progress_tracker.get_leaderboard(metric, limit)
+
+
+@app.get("/progress/badges")
+async def get_available_badges(
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get all available badges."""
+    return progress_tracker.get_available_badges()
+
+
+@app.get("/progress/skill-categories")
+async def get_skill_categories(
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get all skill categories and skills."""
+    return progress_tracker.get_skill_categories()
+
+
+@app.get("/progress/profiles")
+async def get_all_profiles(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[dict]:
+    """Get all trainee profiles (admin/instructor only)."""
+    profiles = progress_tracker.get_all_profiles()
+    return [p.to_dict() for p in profiles]

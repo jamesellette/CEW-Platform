@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { recordingApi } from '../api';
 
+// Maximum characters to display for command output
+const MAX_OUTPUT_DISPLAY_LENGTH = 500;
+
 /**
  * SessionPlayback component provides playback of recorded training sessions.
  * Allows instructors to review trainee actions for assessment and debriefing.
@@ -251,7 +254,7 @@ export default function SessionPlayback({ sessionId, onClose }) {
           {currentEvent.data?.output && (
             <div style={outputBlockStyle}>
               <span style={labelStyle}>Output:</span>
-              <pre style={preStyle}>{currentEvent.data.output.slice(0, 500)}</pre>
+              <pre style={preStyle}>{currentEvent.data.output.slice(0, MAX_OUTPUT_DISPLAY_LENGTH)}</pre>
             </div>
           )}
 
