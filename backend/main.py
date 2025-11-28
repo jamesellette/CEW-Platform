@@ -1,10 +1,20 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
 import json
 from pathlib import Path
+from datetime import timedelta
+
+from auth import (
+    User, Token, LoginRequest, UserCreate, UserRole,
+    authenticate_user, create_access_token, get_current_user,
+    require_role, create_user, ACCESS_TOKEN_EXPIRE_MINUTES
+)
+from audit import (
+    AuditLog, AuditAction, log_action, get_audit_logs
+)
 
 app = FastAPI(title="CEW Training Backend (prototype)")
 
@@ -27,6 +37,7 @@ class Scenario(BaseModel):
     description: str = ""
     topology: dict = {}
     constraints: dict = {}
+    created_by: Optional[str] = None
 
 
 class ScenarioUpdate(BaseModel):
@@ -65,6 +76,76 @@ def validate_air_gap(constraints: dict) -> None:
 def health_check() -> dict:
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+# ============ Authentication Endpoints ============
+
+@app.post("/auth/login", response_model=Token)
+def login(login_data: LoginRequest, request: Request):
+    """Authenticate user and return JWT token."""
+    user = authenticate_user(login_data.username, login_data.password)
+    if not user:
+        log_action(
+            action=AuditAction.FAILED_LOGIN,
+            username=login_data.username,
+            ip_address=request.client.host if request.client else None,
+            success=False,
+            details="Invalid credentials"
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password"
+        )
+
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username, "role": user.role},
+        expires_delta=access_token_expires
+    )
+
+    log_action(
+        action=AuditAction.LOGIN,
+        username=user.username,
+        ip_address=request.client.host if request.client else None
+    )
+
+    return Token(access_token=access_token)
+
+
+@app.get("/auth/me", response_model=User)
+def get_current_user_info(current_user: User = Depends(get_current_user)):
+    """Get current authenticated user info."""
+    return current_user
+
+
+@app.post("/auth/register", response_model=User)
+def register_user(
+    user_data: UserCreate,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+):
+    """Register a new user (admin only)."""
+    new_user = create_user(user_data)
+    log_action(
+        action=AuditAction.CREATE_USER,
+        username=current_user.username,
+        resource_type="user",
+        resource_id=new_user.username,
+        details=f"Created user with role: {new_user.role}"
+    )
+    return new_user
+
+
+# ============ Audit Log Endpoints ============
+
+@app.get("/audit/logs", response_model=List[AuditLog])
+def list_audit_logs(
+    username: Optional[str] = None,
+    action: Optional[str] = None,
+    limit: int = 100,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+):
+    """Get audit logs (admin/instructor only)."""
+    return get_audit_logs(username=username, action=action, limit=limit)
 
 
 # ============ Topology Template Endpoints ============

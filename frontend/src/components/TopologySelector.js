@@ -119,16 +119,20 @@ export default function TopologySelector({ onSelect, onCancel }) {
               <h5>Safety Constraints</h5>
               <ul>
                 <li>
-                  External Network:{' '}
-                  {templateDetails.constraints?.allow_external_network
-                    ? '⚠️ Allowed'
-                    : '✅ Blocked'}
+                  <span aria-label={templateDetails.constraints?.allow_external_network ? 'Warning: External network allowed' : 'External network blocked'}>
+                    External Network:{' '}
+                    {templateDetails.constraints?.allow_external_network
+                      ? '⚠️ Allowed'
+                      : '✅ Blocked'}
+                  </span>
                 </li>
                 <li>
-                  Real RF Transmission:{' '}
-                  {templateDetails.constraints?.allow_real_rf
-                    ? '⚠️ Allowed'
-                    : '✅ Blocked (Simulated Only)'}
+                  <span aria-label={templateDetails.constraints?.allow_real_rf ? 'Warning: Real RF allowed' : 'Real RF blocked, simulated only'}>
+                    Real RF Transmission:{' '}
+                    {templateDetails.constraints?.allow_real_rf
+                      ? '⚠️ Allowed'
+                      : '✅ Blocked (Simulated Only)'}
+                  </span>
                 </li>
               </ul>
             </div>

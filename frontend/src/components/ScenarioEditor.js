@@ -126,7 +126,7 @@ export default function ScenarioEditor({ scenario, onSave, onCancel }) {
             style={{ ...inputStyle, fontFamily: 'monospace' }}
           />
           <small style={{ color: '#666' }}>
-            Note: Setting "allow_external_network": true is blocked for safety.
+            Note: "allow_external_network" and "allow_real_rf" are blocked for safety.
           </small>
         </div>
         <div style={{ marginTop: '16px' }}>
