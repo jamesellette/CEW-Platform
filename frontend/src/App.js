@@ -7,11 +7,16 @@ import InstructorControls from './components/InstructorControls';
 import Dashboard from './components/Dashboard';
 import AuditLogs from './components/AuditLogs';
 import UserManagement from './components/UserManagement';
+import RecordingsList from './components/RecordingsList';
+import ProgressDashboard from './components/ProgressDashboard';
+import ScheduleManager from './components/ScheduleManager';
+import MultiUserSessions from './components/MultiUserSessions';
+import Marketplace from './components/Marketplace';
 import { authApi } from './api';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users'
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress', 'schedule', 'sessions', 'marketplace'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -117,6 +122,38 @@ export default function App() {
           >
             📝 Scenarios
           </button>
+          <button
+            onClick={() => setView('schedule')}
+            style={view === 'schedule' ? navButtonActiveStyle : navButtonStyle}
+          >
+            📅 Schedule
+          </button>
+          <button
+            onClick={() => setView('sessions')}
+            style={view === 'sessions' ? navButtonActiveStyle : navButtonStyle}
+          >
+            👥 Sessions
+          </button>
+          <button
+            onClick={() => setView('marketplace')}
+            style={view === 'marketplace' ? navButtonActiveStyle : navButtonStyle}
+          >
+            🛒 Marketplace
+          </button>
+          <button
+            onClick={() => setView('progress')}
+            style={view === 'progress' ? navButtonActiveStyle : navButtonStyle}
+          >
+            📈 Progress
+          </button>
+          {isInstructorOrAdmin && (
+            <button
+              onClick={() => setView('recordings')}
+              style={view === 'recordings' ? navButtonActiveStyle : navButtonStyle}
+            >
+              📼 Recordings
+            </button>
+          )}
           {isInstructorOrAdmin && (
             <button
               onClick={() => setView('audit')}
@@ -172,6 +209,21 @@ export default function App() {
             onSelect={handleTemplateSelect}
             onCancel={handleCancel}
           />
+        )}
+        {view === 'schedule' && (
+          <ScheduleManager user={user} />
+        )}
+        {view === 'sessions' && (
+          <MultiUserSessions user={user} />
+        )}
+        {view === 'marketplace' && (
+          <Marketplace user={user} />
+        )}
+        {view === 'progress' && (
+          <ProgressDashboard user={user} />
+        )}
+        {view === 'recordings' && isInstructorOrAdmin && (
+          <RecordingsList user={user} />
         )}
         {view === 'audit' && isInstructorOrAdmin && (
           <AuditLogs />

@@ -761,6 +761,170 @@ class Orchestrator:
 
         return usage
 
+    def get_container_logs(
+        self,
+        lab_id: str,
+        container_hostname: str,
+        tail: int = 100,
+        since: Optional[datetime] = None,
+        timestamps: bool = True
+    ) -> dict:
+        """
+        Get logs from a specific container in a lab.
+
+        Args:
+            lab_id: Unique identifier of the lab
+            container_hostname: Hostname of the container
+            tail: Number of lines to return from the end (default 100)
+            since: Only return logs since this time
+            timestamps: Include timestamps in log lines
+
+        Returns:
+            Dictionary with log information
+        """
+        lab = self._labs.get(lab_id)
+        if not lab:
+            raise ValueError(f"Lab {lab_id} not found")
+
+        # Find the container
+        container = None
+        for c in lab.containers:
+            if c.hostname == container_hostname:
+                container = c
+                break
+
+        if not container:
+            raise ValueError(
+                f"Container '{container_hostname}' not found in lab {lab_id}"
+            )
+
+        if not self._docker_available:
+            # Simulation mode - return placeholder logs
+            simulated_logs = [
+                f"[INFO] Container {container_hostname} started",
+                f"[INFO] Hostname: {container_hostname}",
+                f"[INFO] Image: {container.image}",
+                f"[INFO] Status: simulated",
+                "[INFO] Simulation mode - no real logs available"
+            ]
+            return {
+                "container_id": container.container_id,
+                "hostname": container_hostname,
+                "logs": simulated_logs,
+                "mode": "simulated",
+                "tail": tail
+            }
+
+        try:
+            docker_container = self._docker_client.containers.get(
+                container.container_id
+            )
+
+            # Build logs parameters
+            log_params = {
+                "stdout": True,
+                "stderr": True,
+                "tail": tail,
+                "timestamps": timestamps
+            }
+            if since:
+                log_params["since"] = since
+
+            # Get logs from Docker
+            logs_bytes = docker_container.logs(**log_params)
+
+            # Decode logs to string and split into lines
+            logs_str = logs_bytes.decode('utf-8', errors='replace')
+            log_lines = logs_str.strip().split('\n') if logs_str.strip() else []
+
+            return {
+                "container_id": container.container_id,
+                "hostname": container_hostname,
+                "logs": log_lines,
+                "mode": "docker",
+                "tail": tail
+            }
+        except docker.errors.NotFound:
+            raise ValueError(
+                f"Container '{container_hostname}' not found in Docker"
+            )
+        except docker.errors.APIError as e:
+            raise RuntimeError(f"Failed to get logs: {e}")
+
+    async def stream_container_logs(
+        self,
+        lab_id: str,
+        container_hostname: str,
+        follow: bool = True,
+        since: Optional[datetime] = None
+    ):
+        """
+        Stream logs from a container as an async generator.
+
+        Args:
+            lab_id: Unique identifier of the lab
+            container_hostname: Hostname of the container
+            follow: Whether to follow logs (like tail -f)
+            since: Only return logs since this time
+
+        Yields:
+            Log lines as they become available
+        """
+        lab = self._labs.get(lab_id)
+        if not lab:
+            raise ValueError(f"Lab {lab_id} not found")
+
+        # Find the container
+        container = None
+        for c in lab.containers:
+            if c.hostname == container_hostname:
+                container = c
+                break
+
+        if not container:
+            raise ValueError(
+                f"Container '{container_hostname}' not found in lab {lab_id}"
+            )
+
+        if not self._docker_available:
+            # Simulation mode - yield placeholder messages
+            yield f"[INFO] Streaming logs for {container_hostname} (simulation mode)"
+            yield "[INFO] No real logs available in simulation mode"
+            return
+
+        try:
+            docker_container = self._docker_client.containers.get(
+                container.container_id
+            )
+
+            # Build stream parameters
+            stream_params = {
+                "stdout": True,
+                "stderr": True,
+                "follow": follow,
+                "timestamps": True,
+                "stream": True
+            }
+            if since:
+                stream_params["since"] = since
+
+            # Stream logs
+            for log_chunk in docker_container.logs(**stream_params):
+                log_line = log_chunk.decode('utf-8', errors='replace').strip()
+                if log_line:
+                    yield log_line
+                # Yield control to the event loop for cooperative multitasking.
+                # This allows other async tasks (e.g., WebSocket heartbeats) to run
+                # while streaming logs continuously.
+                await asyncio.sleep(0)
+
+        except docker.errors.NotFound:
+            raise ValueError(
+                f"Container '{container_hostname}' not found in Docker"
+            )
+        except docker.errors.APIError as e:
+            raise RuntimeError(f"Failed to stream logs: {e}")
+
 
 # Global orchestrator instance
 orchestrator = Orchestrator()

@@ -576,3 +576,122 @@ def test_system_status_includes_docker_info():
     assert "docker" in data
     assert "available" in data["docker"]
     assert "mode" in data["docker"]
+
+
+# ============ Container Logs Tests ============
+
+def test_container_logs_endpoint():
+    db.clear()
+    active_scenarios.clear()
+    lab_to_scenario.clear()
+    orchestrator._labs.clear()
+
+    # Create and activate a scenario
+    scenario_data = {
+        "name": "Container Logs Test",
+        "topology": {
+            "nodes": [{"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}],
+            "networks": []
+        }
+    }
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    token = get_admin_token()
+    activate_response = client.post(
+        f"/scenarios/{scenario_id}/activate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    lab_id = activate_response.json()["lab_id"]
+
+    # Get container logs
+    r = client.get(
+        f"/labs/{lab_id}/containers/node1/logs",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["hostname"] == "node1"
+    assert "logs" in data
+    assert data["mode"] == "simulated"
+
+
+def test_container_logs_not_found_lab():
+    token = get_admin_token()
+    r = client.get(
+        "/labs/nonexistent-lab-id/containers/node1/logs",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 404
+
+
+def test_container_logs_not_found_container():
+    db.clear()
+    active_scenarios.clear()
+    lab_to_scenario.clear()
+    orchestrator._labs.clear()
+
+    # Create and activate a scenario
+    scenario_data = {
+        "name": "Container Not Found Test",
+        "topology": {
+            "nodes": [{"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}],
+            "networks": []
+        }
+    }
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    token = get_admin_token()
+    activate_response = client.post(
+        f"/scenarios/{scenario_id}/activate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    lab_id = activate_response.json()["lab_id"]
+
+    # Try to get logs for non-existent container
+    r = client.get(
+        f"/labs/{lab_id}/containers/nonexistent-container/logs",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 404
+
+
+def test_container_logs_with_tail_param():
+    db.clear()
+    active_scenarios.clear()
+    lab_to_scenario.clear()
+    orchestrator._labs.clear()
+
+    # Create and activate a scenario
+    scenario_data = {
+        "name": "Logs Tail Test",
+        "topology": {
+            "nodes": [{"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}],
+            "networks": []
+        }
+    }
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    token = get_admin_token()
+    activate_response = client.post(
+        f"/scenarios/{scenario_id}/activate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    lab_id = activate_response.json()["lab_id"]
+
+    # Get container logs with tail parameter
+    r = client.get(
+        f"/labs/{lab_id}/containers/node1/logs?tail=50",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["tail"] == 50
+
+
+def test_container_logs_requires_auth():
+    # Try without auth
+    r = client.get("/labs/some-lab-id/containers/node1/logs")
+    assert r.status_code == 401

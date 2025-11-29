@@ -44,6 +44,37 @@ jest.mock('./api', () => {
       get: jest.fn(),
       stop: jest.fn(),
     },
+    recordingApi: {
+      list: jest.fn().mockResolvedValue({ data: { recordings: [] } }),
+      get: jest.fn(),
+      getPlayback: jest.fn().mockResolvedValue({ data: { session: {}, events: [] } }),
+    },
+    progressApi: {
+      getMyProgress: jest.fn().mockResolvedValue({ data: { level: 1, experience: 0 } }),
+      getMyReport: jest.fn().mockResolvedValue({ data: { exercises_completed: 0 } }),
+      getLeaderboard: jest.fn().mockResolvedValue({ data: { entries: [] } }),
+      getAllProfiles: jest.fn().mockResolvedValue({ data: { profiles: [] } }),
+      getBadges: jest.fn().mockResolvedValue({ data: { badges: [] } }),
+      getSkillCategories: jest.fn().mockResolvedValue({ data: { categories: [] } }),
+    },
+    scheduleApi: {
+      getUpcoming: jest.fn().mockResolvedValue({ data: { schedules: [] } }),
+      getMySchedules: jest.fn().mockResolvedValue({ data: { schedules: [] } }),
+      getCalendar: jest.fn().mockResolvedValue({ data: { schedules_by_day: {} } }),
+      listSchedules: jest.fn().mockResolvedValue({ data: { schedules: [] } }),
+    },
+    sessionApi: {
+      listSessions: jest.fn().mockResolvedValue({ data: { sessions: [] } }),
+      getMySessions: jest.fn().mockResolvedValue({ data: { sessions: [] } }),
+      getSession: jest.fn().mockResolvedValue({ data: {} }),
+    },
+    marketplaceApi: {
+      listTemplates: jest.fn().mockResolvedValue({ data: { templates: [] } }),
+      getPopular: jest.fn().mockResolvedValue({ data: { templates: [] } }),
+      getRecent: jest.fn().mockResolvedValue({ data: { templates: [] } }),
+      getMyTemplates: jest.fn().mockResolvedValue({ data: { templates: [] } }),
+      getCategories: jest.fn().mockResolvedValue({ data: { categories: [] } }),
+    },
     authApi: {
       getUser: jest.fn(),
       getToken: jest.fn(),
@@ -134,6 +165,97 @@ describe('App - Authenticated', () => {
     render(<App />);
     await waitFor(() => {
       expect(screen.getByText(/Training use only/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders recordings tab for admin users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/📼 Recordings/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to recordings view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/📼 Recordings/i));
+    });
+    // Verify the recordings tab is active (has the blue active style)
+    await waitFor(() => {
+      const recordingsButton = screen.getByText(/📼 Recordings/i);
+      expect(recordingsButton).toHaveStyle({ backgroundColor: 'rgb(0, 123, 255)' });
+    });
+  });
+
+  test('renders progress tab for all users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/📈 Progress/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to progress view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/📈 Progress/i));
+    });
+    // Verify the progress dashboard is displayed
+    await waitFor(() => {
+      expect(screen.getByText(/Progress Dashboard/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders schedule tab for all users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/📅 Schedule/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to schedule view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/📅 Schedule/i));
+    });
+    // Verify the schedule manager is displayed
+    await waitFor(() => {
+      expect(screen.getByText(/Exercise Schedule/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders sessions tab for all users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/👥 Sessions/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to sessions view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/👥 Sessions/i));
+    });
+    // Verify the multi-user sessions is displayed
+    await waitFor(() => {
+      expect(screen.getByText(/Multi-User Sessions/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders marketplace tab for all users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/🛒 Marketplace/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to marketplace view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/🛒 Marketplace/i));
+    });
+    // Verify the marketplace is displayed
+    await waitFor(() => {
+      expect(screen.getByText(/Scenario Marketplace/i)).toBeInTheDocument();
     });
   });
 });

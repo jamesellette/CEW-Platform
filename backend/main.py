@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Request, WebSocket
+from fastapi import FastAPI, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
@@ -823,6 +823,126 @@ async def recover_lab_containers(
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============ Container Logs Endpoints ============
+
+
+@app.get("/labs/{lab_id}/containers/{hostname}/logs")
+async def get_container_logs(
+    lab_id: str,
+    hostname: str,
+    tail: int = 100,
+    timestamps: bool = True,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """
+    Get logs from a specific container in a lab.
+
+    Args:
+        lab_id: The lab ID
+        hostname: The container hostname
+        tail: Number of log lines to return from end (default 100)
+        timestamps: Include timestamps in log lines (default True)
+    """
+    try:
+        logs = orchestrator.get_container_logs(
+            lab_id=lab_id,
+            container_hostname=hostname,
+            tail=tail,
+            timestamps=timestamps
+        )
+        return logs
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.websocket("/ws/labs/{lab_id}/containers/{hostname}/logs")
+async def websocket_container_logs(
+    websocket: WebSocket,
+    lab_id: str,
+    hostname: str
+):
+    """
+    WebSocket endpoint for streaming container logs in real-time.
+
+    Clients should send a token query parameter for authentication.
+    Logs are streamed as they become available.
+    """
+    # Get token from query params
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
+
+    # Validate token
+    user = get_user_from_token(token)
+    if not user:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
+
+    # Check role permissions
+    if user.role not in [UserRole.ADMIN, UserRole.INSTRUCTOR]:
+        await websocket.close(code=4003, reason="Insufficient permissions")
+        return
+
+    # Verify lab and container exist
+    lab = orchestrator.get_lab(lab_id)
+    if not lab:
+        await websocket.close(code=4004, reason="Lab not found")
+        return
+
+    container = None
+    for c in lab.containers:
+        if c.hostname == hostname:
+            container = c
+            break
+
+    if not container:
+        await websocket.close(code=4004, reason="Container not found")
+        return
+
+    await websocket.accept()
+
+    try:
+        # Send initial message
+        await websocket.send_json({
+            "type": "connected",
+            "lab_id": lab_id,
+            "hostname": hostname,
+            "docker_mode": orchestrator.docker_available
+        })
+
+        # Stream logs
+        async for log_line in orchestrator.stream_container_logs(
+            lab_id=lab_id,
+            container_hostname=hostname,
+            follow=True
+        ):
+            await websocket.send_json({
+                "type": "log",
+                "line": log_line
+            })
+
+    except WebSocketDisconnect:
+        pass
+    except ValueError as e:
+        await websocket.send_json({
+            "type": "error",
+            "message": str(e)
+        })
+    except Exception as e:
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Log streaming error: {str(e)}"
+        })
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 # ============ WebSocket Endpoints for Real-Time Monitoring ============

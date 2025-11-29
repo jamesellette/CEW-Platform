@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { labApi, wsApi, authApi } from '../api';
+import ContainerLogs from './ContainerLogs';
 
 /**
  * LabMonitor component provides real-time monitoring of active lab environments.
@@ -11,6 +12,7 @@ export default function LabMonitor({ labId, onClose }) {
   const [error, setError] = useState(null);
   const [connected, setConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [selectedContainerLogs, setSelectedContainerLogs] = useState(null);
   const wsRef = useRef(null);
 
   // Fetch initial lab data
@@ -245,10 +247,27 @@ export default function LabMonitor({ labId, onClose }) {
                   </div>
                 </div>
               )}
+              
+              {/* View Logs Button */}
+              <button
+                onClick={() => setSelectedContainerLogs(container.hostname)}
+                style={viewLogsButtonStyle}
+              >
+                📜 View Logs
+              </button>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Container Logs Panel */}
+      {selectedContainerLogs && (
+        <ContainerLogs
+          labId={labId}
+          hostname={selectedContainerLogs}
+          onClose={() => setSelectedContainerLogs(null)}
+        />
+      )}
 
       {/* Actions */}
       <div style={actionsStyle}>
@@ -511,6 +530,18 @@ const resourceValueStyle = {
   color: '#666',
   minWidth: '50px',
   textAlign: 'right',
+};
+
+const viewLogsButtonStyle = {
+  marginTop: '10px',
+  padding: '6px 12px',
+  backgroundColor: '#17a2b8',
+  color: 'white',
+  border: 'none',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  fontSize: '12px',
+  width: '100%',
 };
 
 const actionsStyle = {

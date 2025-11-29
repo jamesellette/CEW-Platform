@@ -73,6 +73,15 @@ export const labApi = {
   getHealth: (labId) => api.get(`/labs/${labId}/health`),
   getResources: (labId) => api.get(`/labs/${labId}/resources`),
   recover: (labId) => api.post(`/labs/${labId}/recover`),
+  // Container logs
+  getLogs: (labId, hostname, tail = 100, timestamps = true) =>
+    api.get(`/labs/${labId}/containers/${hostname}/logs`, { params: { tail, timestamps } }),
+  // WebSocket URL for log streaming
+  getLogStreamUrl: (labId, hostname, token) => {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = API_BASE_URL.replace(/^https?:\/\//, '');
+    return `${wsProtocol}//${host}/ws/labs/${labId}/containers/${hostname}/logs?token=${token}`;
+  },
 };
 
 // WebSocket API - for real-time lab monitoring

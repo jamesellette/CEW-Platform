@@ -506,3 +506,129 @@ async def test_container_health_status_enum():
 
     container = lab.containers[0]
     assert container.health == ContainerHealth.STARTING
+
+
+# ============ Container Logs Tests ============
+
+@pytest.mark.asyncio
+async def test_get_container_logs_simulation():
+    """Test getting container logs in simulation mode."""
+    lab = await orchestrator.create_lab(
+        scenario_id="logs-test",
+        scenario_name="Logs Test",
+        topology={
+            "nodes": [
+                {"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}
+            ],
+            "networks": []
+        },
+        constraints={},
+        activated_by="testuser"
+    )
+
+    logs = orchestrator.get_container_logs(
+        lab_id=lab.lab_id,
+        container_hostname="node1",
+        tail=100
+    )
+
+    assert logs["hostname"] == "node1"
+    assert logs["mode"] == "simulated"
+    assert "logs" in logs
+    assert len(logs["logs"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_get_container_logs_not_found_lab():
+    """Test getting logs with invalid lab ID."""
+    with pytest.raises(ValueError, match="not found"):
+        orchestrator.get_container_logs(
+            lab_id="nonexistent-lab",
+            container_hostname="node1"
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_container_logs_not_found_container():
+    """Test getting logs with invalid container hostname."""
+    lab = await orchestrator.create_lab(
+        scenario_id="logs-not-found-test",
+        scenario_name="Logs Not Found Test",
+        topology={
+            "nodes": [
+                {"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}
+            ],
+            "networks": []
+        },
+        constraints={},
+        activated_by="testuser"
+    )
+
+    with pytest.raises(ValueError, match="not found"):
+        orchestrator.get_container_logs(
+            lab_id=lab.lab_id,
+            container_hostname="nonexistent-container"
+        )
+
+
+@pytest.mark.asyncio
+async def test_stream_container_logs_simulation():
+    """Test streaming container logs in simulation mode."""
+    lab = await orchestrator.create_lab(
+        scenario_id="stream-logs-test",
+        scenario_name="Stream Logs Test",
+        topology={
+            "nodes": [
+                {"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}
+            ],
+            "networks": []
+        },
+        constraints={},
+        activated_by="testuser"
+    )
+
+    log_lines = []
+    async for line in orchestrator.stream_container_logs(
+        lab_id=lab.lab_id,
+        container_hostname="node1",
+        follow=True
+    ):
+        log_lines.append(line)
+
+    assert len(log_lines) > 0
+    assert "simulation mode" in log_lines[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_stream_container_logs_not_found_lab():
+    """Test streaming logs with invalid lab ID."""
+    with pytest.raises(ValueError, match="not found"):
+        async for _ in orchestrator.stream_container_logs(
+            lab_id="nonexistent-lab",
+            container_hostname="node1"
+        ):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_stream_container_logs_not_found_container():
+    """Test streaming logs with invalid container hostname."""
+    lab = await orchestrator.create_lab(
+        scenario_id="stream-not-found-test",
+        scenario_name="Stream Not Found Test",
+        topology={
+            "nodes": [
+                {"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}
+            ],
+            "networks": []
+        },
+        constraints={},
+        activated_by="testuser"
+    )
+
+    with pytest.raises(ValueError, match="not found"):
+        async for _ in orchestrator.stream_container_logs(
+            lab_id=lab.lab_id,
+            container_hostname="nonexistent-container"
+        ):
+            pass
