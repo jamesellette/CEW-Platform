@@ -98,23 +98,22 @@ The following features have been fully implemented with both backend APIs and fr
 - Natural language scenario description
 - Toggle-able in settings for Manual or AI assisted
 
-### 14. Mobile Support
-**Current State**: Desktop-only UI  
-**Proposed**: Responsive mobile experience
+### 14. Mobile Support ✅
+**Status**: Implemented  
+- Progressive Web App (PWA) support with service worker
+- Mobile-responsive UI with touch-friendly controls
+- Push notification scaffolding for exercise alerts
+- Offline page with cached content support
+- Install-to-home-screen capability
 
-- Progressive Web App (PWA) support
-- Mobile-optimized dashboard
-- Push notifications for exercise alerts
-- Offline scenario review
-
-### 15. Compliance Reporting
-**Current State**: Basic audit logs  
-**Proposed**: Compliance automation
-
-- NIST Cybersecurity Framework mapping
-- Training hour tracking for certifications
-- Exportable compliance reports
-- Integration with HR/training management systems
+### 15. Compliance Reporting ✅
+**Status**: Implemented
+- NIST Cybersecurity Framework mapping for scenarios
+- Training hour tracking with certification integration
+- Exportable compliance reports (JSON/CSV)
+- User certification enrollment and tracking
+- Compliance dashboard with progress visualization
+- Support for CISSP, CEH, CompTIA, and custom certifications
 
 ### 16. Kubernetes Deployment Support
 **Current State**: Docker Compose only  
@@ -178,9 +177,10 @@ The following features have been fully implemented with both backend APIs and fr
 | Backup & Recovery | ✅ Done | High | Medium | P2 |
 | External Integrations | ✅ Done | High | High | P3 |
 | RF/EW Simulation | ✅ Done | High | High | P2 |
+| Mobile Support (PWA) | ✅ Done | Medium | Medium | P3 |
+| Compliance Reporting | ✅ Done | High | Medium | P2 |
 | Docker Integration | Pending | High | Medium | P1 |
 | AI Scenario Generation | Pending | High | Very High | P4 |
-| Mobile Support | Pending | Medium | Medium | P3 |
 | Kubernetes Support | Pending | High | High | P3 |
 | Advanced Auth (SSO/MFA) | Pending | Medium | High | P3 |
 

@@ -7,7 +7,7 @@ import uuid
 import json
 import yaml
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from auth import (
     User, Token, LoginRequest, UserCreate, UserRole,
@@ -49,6 +49,10 @@ from external_integrations import (
 from rf_ew_simulation import (
     rf_ew_simulator, SignalType, ModulationType, JammingType,
     ThreatType, SimulationStatus as RFSimStatus
+)
+from compliance_reporting import (
+    compliance_manager, NISTFunction, NISTCategory,
+    CertificationType, ComplianceStatus, ReportFormat
 )
 from contextlib import asynccontextmanager
 import asyncio
@@ -4667,3 +4671,601 @@ async def get_sigint_reports(
     """Get SIGINT reports from simulation."""
     reports = rf_ew_simulator.get_reports(simulation_id, limit)
     return [r.to_dict() for r in reports]
+
+
+# ============ Compliance Reporting Endpoints ============
+
+
+class CreateNISTMappingRequest(BaseModel):
+    """Request to create a NIST mapping."""
+    scenario_id: str
+    scenario_name: str
+    nist_function: str
+    nist_categories: List[str]
+    subcategories: List[str] = []
+    description: str
+    learning_objectives: List[str] = []
+
+
+class UpdateNISTMappingRequest(BaseModel):
+    """Request to update a NIST mapping."""
+    nist_categories: Optional[List[str]] = None
+    subcategories: Optional[List[str]] = None
+    description: Optional[str] = None
+    learning_objectives: Optional[List[str]] = None
+
+
+class StartTrainingRequest(BaseModel):
+    """Request to start training tracking."""
+    scenario_id: str
+    scenario_name: str
+    exercise_id: Optional[str] = None
+    exercise_name: Optional[str] = None
+
+
+class CompleteTrainingRequest(BaseModel):
+    """Request to complete training tracking."""
+    score: Optional[float] = None
+    passed: bool = False
+    notes: str = ""
+
+
+class CreateCertificationRequirementRequest(BaseModel):
+    """Request to create a certification requirement."""
+    certification_type: str
+    certification_name: str
+    hours_required: float
+    period_months: int
+    categories_required: List[str] = []
+    min_categories: int = 0
+    description: str = ""
+
+
+class GenerateReportRequest(BaseModel):
+    """Request to generate a compliance report."""
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+
+
+class GenerateTeamReportRequest(BaseModel):
+    """Request to generate a team compliance report."""
+    usernames: List[str]
+    team_name: str
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+
+
+# NIST Framework Reference
+
+@app.get("/compliance/nist/reference")
+async def get_nist_reference(
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get NIST Cybersecurity Framework reference data."""
+    return compliance_manager.get_nist_reference()
+
+
+@app.get("/compliance/nist/functions")
+async def get_nist_functions(
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get list of NIST Functions."""
+    return compliance_manager.get_nist_functions()
+
+
+@app.get("/compliance/nist/categories")
+async def get_nist_categories(
+    function: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get list of NIST Categories."""
+    func = NISTFunction(function) if function else None
+    return compliance_manager.get_nist_categories(func)
+
+
+# NIST Mappings
+
+@app.post("/compliance/mappings")
+async def create_nist_mapping(
+    request: CreateNISTMappingRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Create a NIST mapping for a scenario."""
+    try:
+        nist_function = NISTFunction(request.nist_function)
+        nist_categories = [NISTCategory(c) for c in request.nist_categories]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid value: {e}")
+    
+    mapping = compliance_manager.create_nist_mapping(
+        scenario_id=request.scenario_id,
+        scenario_name=request.scenario_name,
+        nist_function=nist_function,
+        nist_categories=nist_categories,
+        subcategories=request.subcategories,
+        description=request.description,
+        learning_objectives=request.learning_objectives,
+        created_by=current_user.username
+    )
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="compliance_mapping",
+        resource_id=mapping.mapping_id,
+        details=f"Created NIST mapping for scenario {request.scenario_id}"
+    )
+    
+    return mapping.to_dict()
+
+
+@app.get("/compliance/mappings")
+async def list_nist_mappings(
+    nist_function: Optional[str] = None,
+    category: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List NIST mappings."""
+    func = NISTFunction(nist_function) if nist_function else None
+    cat = NISTCategory(category) if category else None
+    
+    mappings = compliance_manager.list_nist_mappings(func, cat)
+    return [m.to_dict() for m in mappings]
+
+
+@app.get("/compliance/mappings/{mapping_id}")
+async def get_nist_mapping(
+    mapping_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get a NIST mapping by ID."""
+    mapping = compliance_manager.get_nist_mapping(mapping_id)
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    return mapping.to_dict()
+
+
+@app.get("/compliance/scenarios/{scenario_id}/mapping")
+async def get_scenario_nist_mapping(
+    scenario_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get NIST mapping for a scenario."""
+    mapping = compliance_manager.get_mapping_for_scenario(scenario_id)
+    if not mapping:
+        raise HTTPException(status_code=404, detail="No mapping found for scenario")
+    return mapping.to_dict()
+
+
+@app.put("/compliance/mappings/{mapping_id}")
+async def update_nist_mapping(
+    mapping_id: str,
+    request: UpdateNISTMappingRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Update a NIST mapping."""
+    nist_categories = None
+    if request.nist_categories:
+        try:
+            nist_categories = [NISTCategory(c) for c in request.nist_categories]
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid category: {e}")
+    
+    mapping = compliance_manager.update_nist_mapping(
+        mapping_id=mapping_id,
+        nist_categories=nist_categories,
+        subcategories=request.subcategories,
+        description=request.description,
+        learning_objectives=request.learning_objectives
+    )
+    
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    
+    return mapping.to_dict()
+
+
+@app.delete("/compliance/mappings/{mapping_id}")
+async def delete_nist_mapping(
+    mapping_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Delete a NIST mapping."""
+    if not compliance_manager.delete_nist_mapping(mapping_id):
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    return {"message": "Mapping deleted"}
+
+
+# Training Records
+
+@app.post("/compliance/training/start")
+async def start_training_record(
+    request: StartTrainingRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Start tracking a training session."""
+    record = compliance_manager.start_training_record(
+        username=current_user.username,
+        scenario_id=request.scenario_id,
+        scenario_name=request.scenario_name,
+        exercise_id=request.exercise_id,
+        exercise_name=request.exercise_name
+    )
+    return record.to_dict()
+
+
+@app.post("/compliance/training/{record_id}/complete")
+async def complete_training_record(
+    record_id: str,
+    request: CompleteTrainingRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Complete a training record."""
+    record = compliance_manager.complete_training_record(
+        record_id=record_id,
+        score=request.score,
+        passed=request.passed,
+        notes=request.notes
+    )
+    
+    if not record:
+        raise HTTPException(status_code=404, detail="Training record not found")
+    
+    return record.to_dict()
+
+
+@app.post("/compliance/training/{record_id}/verify")
+async def verify_training_record(
+    record_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Verify a training record."""
+    record = compliance_manager.verify_training_record(
+        record_id=record_id,
+        verified_by=current_user.username
+    )
+    
+    if not record:
+        raise HTTPException(status_code=404, detail="Training record not found")
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="training_record",
+        resource_id=record_id,
+        details="Verified training record"
+    )
+    
+    return record.to_dict()
+
+
+@app.get("/compliance/training/me")
+async def get_my_training_records(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get current user's training records."""
+    start = datetime.fromisoformat(start_date) if start_date else None
+    end = datetime.fromisoformat(end_date) if end_date else None
+    
+    records = compliance_manager.get_user_training_records(
+        username=current_user.username,
+        start_date=start,
+        end_date=end
+    )
+    return [r.to_dict() for r in records]
+
+
+@app.get("/compliance/training/me/hours")
+async def get_my_training_hours(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get current user's training hours."""
+    start = datetime.fromisoformat(start_date) if start_date else None
+    end = datetime.fromisoformat(end_date) if end_date else None
+    
+    return compliance_manager.get_user_training_hours(
+        username=current_user.username,
+        start_date=start,
+        end_date=end
+    )
+
+
+@app.get("/compliance/training/users/{username}")
+async def get_user_training_records(
+    username: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[dict]:
+    """Get a user's training records (admin/instructor only)."""
+    start = datetime.fromisoformat(start_date) if start_date else None
+    end = datetime.fromisoformat(end_date) if end_date else None
+    
+    records = compliance_manager.get_user_training_records(
+        username=username,
+        start_date=start,
+        end_date=end
+    )
+    return [r.to_dict() for r in records]
+
+
+@app.get("/compliance/training/users/{username}/hours")
+async def get_user_training_hours(
+    username: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get a user's training hours (admin/instructor only)."""
+    start = datetime.fromisoformat(start_date) if start_date else None
+    end = datetime.fromisoformat(end_date) if end_date else None
+    
+    return compliance_manager.get_user_training_hours(
+        username=username,
+        start_date=start,
+        end_date=end
+    )
+
+
+# Certification Requirements
+
+@app.get("/compliance/certifications/requirements")
+async def list_certification_requirements(
+    active_only: bool = True,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List certification requirements."""
+    requirements = compliance_manager.list_certification_requirements(active_only)
+    return [r.to_dict() for r in requirements]
+
+
+@app.post("/compliance/certifications/requirements")
+async def create_certification_requirement(
+    request: CreateCertificationRequirementRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Create a certification requirement."""
+    try:
+        cert_type = CertificationType(request.certification_type)
+        categories = [NISTCategory(c) for c in request.categories_required]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid value: {e}")
+    
+    requirement = compliance_manager.create_certification_requirement(
+        certification_type=cert_type,
+        certification_name=request.certification_name,
+        hours_required=request.hours_required,
+        period_months=request.period_months,
+        categories_required=categories,
+        min_categories=request.min_categories,
+        description=request.description
+    )
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="certification_requirement",
+        resource_id=requirement.requirement_id,
+        details=f"Created certification requirement: {request.certification_name}"
+    )
+    
+    return requirement.to_dict()
+
+
+@app.get("/compliance/certifications/requirements/{requirement_id}")
+async def get_certification_requirement(
+    requirement_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get a certification requirement by ID."""
+    requirement = compliance_manager.get_certification_requirement(requirement_id)
+    if not requirement:
+        raise HTTPException(status_code=404, detail="Requirement not found")
+    return requirement.to_dict()
+
+
+# User Certification Tracking
+
+@app.post("/compliance/certifications/enroll/{requirement_id}")
+async def enroll_in_certification(
+    requirement_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Enroll in certification tracking."""
+    tracker = compliance_manager.enroll_user_in_certification(
+        username=current_user.username,
+        requirement_id=requirement_id
+    )
+    
+    if not tracker:
+        raise HTTPException(status_code=404, detail="Requirement not found")
+    
+    return tracker.to_dict()
+
+
+@app.get("/compliance/certifications/me")
+async def get_my_certifications(
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get current user's certification trackers."""
+    stat = ComplianceStatus(status) if status else None
+    trackers = compliance_manager.get_user_certification_trackers(
+        username=current_user.username,
+        status=stat
+    )
+    return [t.to_dict() for t in trackers]
+
+
+@app.get("/compliance/certifications/users/{username}")
+async def get_user_certifications(
+    username: str,
+    status: Optional[str] = None,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[dict]:
+    """Get a user's certification trackers (admin/instructor only)."""
+    stat = ComplianceStatus(status) if status else None
+    trackers = compliance_manager.get_user_certification_trackers(
+        username=username,
+        status=stat
+    )
+    return [t.to_dict() for t in trackers]
+
+
+@app.get("/compliance/summary/me")
+async def get_my_compliance_summary(
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get current user's compliance summary."""
+    return compliance_manager.get_user_compliance_summary(current_user.username)
+
+
+@app.get("/compliance/summary/users/{username}")
+async def get_user_compliance_summary(
+    username: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get a user's compliance summary (admin/instructor only)."""
+    return compliance_manager.get_user_compliance_summary(username)
+
+
+# Compliance Reports
+
+@app.post("/compliance/reports/individual")
+async def generate_individual_report(
+    request: GenerateReportRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Generate an individual compliance report."""
+    start = datetime.fromisoformat(request.period_start) if request.period_start else None
+    end = datetime.fromisoformat(request.period_end) if request.period_end else None
+    
+    report = compliance_manager.generate_individual_report(
+        username=current_user.username,
+        generated_by=current_user.username,
+        period_start=start,
+        period_end=end
+    )
+    
+    return report.to_dict()
+
+
+@app.post("/compliance/reports/individual/{username}")
+async def generate_user_report(
+    username: str,
+    request: GenerateReportRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Generate an individual compliance report for a user."""
+    start = datetime.fromisoformat(request.period_start) if request.period_start else None
+    end = datetime.fromisoformat(request.period_end) if request.period_end else None
+    
+    report = compliance_manager.generate_individual_report(
+        username=username,
+        generated_by=current_user.username,
+        period_start=start,
+        period_end=end
+    )
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="compliance_report",
+        resource_id=report.report_id,
+        details=f"Generated compliance report for user: {username}"
+    )
+    
+    return report.to_dict()
+
+
+@app.post("/compliance/reports/team")
+async def generate_team_report(
+    request: GenerateTeamReportRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Generate a team compliance report."""
+    start = datetime.fromisoformat(request.period_start) if request.period_start else None
+    end = datetime.fromisoformat(request.period_end) if request.period_end else None
+    
+    report = compliance_manager.generate_team_report(
+        usernames=request.usernames,
+        team_name=request.team_name,
+        generated_by=current_user.username,
+        period_start=start,
+        period_end=end
+    )
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="compliance_report",
+        resource_id=report.report_id,
+        details=f"Generated team compliance report: {request.team_name}"
+    )
+    
+    return report.to_dict()
+
+
+@app.get("/compliance/reports")
+async def list_compliance_reports(
+    report_type: Optional[str] = None,
+    limit: int = 50,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[dict]:
+    """List generated compliance reports."""
+    reports = compliance_manager.list_reports(report_type, limit)
+    return [r.to_dict() for r in reports]
+
+
+@app.get("/compliance/reports/{report_id}")
+async def get_compliance_report(
+    report_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get a compliance report by ID."""
+    report = compliance_manager.get_report(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report.to_dict()
+
+
+@app.get("/compliance/reports/{report_id}/export")
+async def export_compliance_report(
+    report_id: str,
+    format: str = "json",
+    current_user: User = Depends(get_current_user)
+) -> Response:
+    """Export a compliance report."""
+    try:
+        report_format = ReportFormat(format)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid format: {format}")
+    
+    content = compliance_manager.export_report(report_id, report_format)
+    if not content:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    media_types = {
+        ReportFormat.JSON: "application/json",
+        ReportFormat.CSV: "text/csv"
+    }
+    
+    return Response(
+        content=content,
+        media_type=media_types.get(report_format, "application/octet-stream"),
+        headers={
+            "Content-Disposition": f'attachment; filename="compliance_report_{report_id}.{format}"'
+        }
+    )
+
+
+@app.get("/compliance/statistics")
+async def get_compliance_statistics(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get compliance reporting statistics."""
+    return compliance_manager.get_statistics()

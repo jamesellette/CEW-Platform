@@ -392,7 +392,7 @@ export const notificationApi = {
 };
 
 // Topology Editor API - for visual network topology building
-export const topologyApi = {
+export const topologyEditorApi = {
   // Topology management
   createTopology: (name, description, metadata = null) =>
     api.post('/topology-editor', { name, description, metadata }),
@@ -769,6 +769,76 @@ export const rfSimulationApi = {
   
   getReports: (simulationId, limit = 10) =>
     api.get(`/rf-simulation/${simulationId}/reports`, { params: { limit } }),
+};
+
+// Compliance Reporting API
+export const complianceApi = {
+  // NIST Reference Data
+  getNISTReference: () => api.get('/compliance/nist/reference'),
+  getNISTFunctions: () => api.get('/compliance/nist/functions'),
+  getNISTCategories: (func = null) =>
+    api.get('/compliance/nist/categories', { params: { function: func } }),
+
+  // NIST Mappings
+  createNISTMapping: (data) => api.post('/compliance/mappings', data),
+  listNISTMappings: (nistFunction = null, category = null) =>
+    api.get('/compliance/mappings', { params: { nist_function: nistFunction, category } }),
+  getNISTMapping: (mappingId) => api.get(`/compliance/mappings/${mappingId}`),
+  getScenarioNISTMapping: (scenarioId) => api.get(`/compliance/scenarios/${scenarioId}/mapping`),
+  updateNISTMapping: (mappingId, data) => api.put(`/compliance/mappings/${mappingId}`, data),
+  deleteNISTMapping: (mappingId) => api.delete(`/compliance/mappings/${mappingId}`),
+
+  // Training Records
+  startTraining: (scenarioId, scenarioName, exerciseId = null, exerciseName = null) =>
+    api.post('/compliance/training/start', {
+      scenario_id: scenarioId,
+      scenario_name: scenarioName,
+      exercise_id: exerciseId,
+      exercise_name: exerciseName,
+    }),
+  completeTraining: (recordId, score = null, passed = false, notes = '') =>
+    api.post(`/compliance/training/${recordId}/complete`, { score, passed, notes }),
+  verifyTraining: (recordId) => api.post(`/compliance/training/${recordId}/verify`),
+  getMyTrainingRecords: (startDate = null, endDate = null) =>
+    api.get('/compliance/training/me', { params: { start_date: startDate, end_date: endDate } }),
+  getMyTrainingHours: (startDate = null, endDate = null) =>
+    api.get('/compliance/training/me/hours', { params: { start_date: startDate, end_date: endDate } }),
+  getUserTrainingRecords: (username, startDate = null, endDate = null) =>
+    api.get(`/compliance/training/users/${username}`, { params: { start_date: startDate, end_date: endDate } }),
+  getUserTrainingHours: (username, startDate = null, endDate = null) =>
+    api.get(`/compliance/training/users/${username}/hours`, { params: { start_date: startDate, end_date: endDate } }),
+
+  // Certification Requirements
+  listCertificationRequirements: (activeOnly = true) =>
+    api.get('/compliance/certifications/requirements', { params: { active_only: activeOnly } }),
+  createCertificationRequirement: (data) => api.post('/compliance/certifications/requirements', data),
+  getCertificationRequirement: (requirementId) =>
+    api.get(`/compliance/certifications/requirements/${requirementId}`),
+
+  // User Certification Tracking
+  enrollInCertification: (requirementId) =>
+    api.post(`/compliance/certifications/enroll/${requirementId}`),
+  getMyCertifications: (status = null) =>
+    api.get('/compliance/certifications/me', { params: { status } }),
+  getUserCertifications: (username, status = null) =>
+    api.get(`/compliance/certifications/users/${username}`, { params: { status } }),
+
+  // Compliance Summaries
+  getMySummary: () => api.get('/compliance/summary/me'),
+  getUserSummary: (username) => api.get(`/compliance/summary/users/${username}`),
+
+  // Compliance Reports
+  generateIndividualReport: (data) => api.post('/compliance/reports/individual', data),
+  generateUserReport: (username, data) => api.post(`/compliance/reports/individual/${username}`, data),
+  generateTeamReport: (data) => api.post('/compliance/reports/team', data),
+  listReports: (reportType = null, limit = 50) =>
+    api.get('/compliance/reports', { params: { report_type: reportType, limit } }),
+  getReport: (reportId) => api.get(`/compliance/reports/${reportId}`),
+  exportReport: (reportId, format = 'json') =>
+    api.get(`/compliance/reports/${reportId}/export`, { params: { format } }),
+
+  // Statistics
+  getStatistics: () => api.get('/compliance/statistics'),
 };
 
 export default api;
