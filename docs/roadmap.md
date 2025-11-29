@@ -79,11 +79,7 @@ The following features have been fully implemented with both backend APIs and fr
 - Signal intelligence training scenarios
 - Jamming/interference simulation (RFSimulation.js)
 
----
-
-## 🔮 Future Enhancements
-
-### 1. Real Docker Container Integration
+### 12. Real Docker Container Integration
 **Current State**: Simulated container lifecycle  
 **Proposed**: Full Docker SDK integration for actual container management
 
@@ -92,7 +88,7 @@ The following features have been fully implemented with both backend APIs and fr
 - Add container health monitoring and auto-recovery
 - Support custom container images for different training scenarios
 
-### 2. AI-Assisted Scenario Generation
+### 13. AI-Assisted Scenario Generation
 **Current State**: Manual scenario creation  
 **Proposed**: Intelligent scenario builder
 
@@ -100,8 +96,9 @@ The following features have been fully implemented with both backend APIs and fr
 - Adaptive difficulty based on trainee performance
 - Automated red team behavior simulation
 - Natural language scenario description
+- Toggle-able in settings for Manual or AI assisted
 
-### 3. Mobile Support
+### 14. Mobile Support
 **Current State**: Desktop-only UI  
 **Proposed**: Responsive mobile experience
 
@@ -110,7 +107,7 @@ The following features have been fully implemented with both backend APIs and fr
 - Push notifications for exercise alerts
 - Offline scenario review
 
-### 4. Compliance Reporting
+### 15. Compliance Reporting
 **Current State**: Basic audit logs  
 **Proposed**: Compliance automation
 
@@ -119,7 +116,7 @@ The following features have been fully implemented with both backend APIs and fr
 - Exportable compliance reports
 - Integration with HR/training management systems
 
-### 5. Kubernetes Deployment Support
+### 16. Kubernetes Deployment Support
 **Current State**: Docker Compose only  
 **Proposed**: Enterprise-grade orchestration
 
@@ -128,7 +125,7 @@ The following features have been fully implemented with both backend APIs and fr
 - Multi-tenant isolation
 - Cloud-native storage integration
 
-### 6. Observability Stack
+### 17. Observability Stack
 **Current State**: Basic logging  
 **Proposed**: Full observability
 
@@ -137,7 +134,7 @@ The following features have been fully implemented with both backend APIs and fr
 - Distributed tracing (Jaeger/Zipkin)
 - Alerting for system anomalies
 
-### 7. CI/CD Pipeline Enhancements
+### 18. CI/CD Pipeline Enhancements
 **Current State**: Basic GitHub Actions  
 **Proposed**: Advanced DevOps
 
@@ -146,7 +143,7 @@ The following features have been fully implemented with both backend APIs and fr
 - Blue-green deployments
 - Infrastructure as Code (Terraform)
 
-### 8. Advanced Authentication
+### 19. Advanced Authentication
 **Current State**: JWT with bcrypt  
 **Proposed**: Enterprise authentication
 
@@ -155,7 +152,7 @@ The following features have been fully implemented with both backend APIs and fr
 - Hardware token support (FIDO2)
 - Session management dashboard
 
-### 9. Network Security Improvements
+### 20. Network Security Improvements
 **Current State**: Basic air-gap enforcement  
 **Proposed**: Defense in depth
 
