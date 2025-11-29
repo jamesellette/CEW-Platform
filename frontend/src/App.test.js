@@ -49,6 +49,14 @@ jest.mock('./api', () => {
       get: jest.fn(),
       getPlayback: jest.fn().mockResolvedValue({ data: { session: {}, events: [] } }),
     },
+    progressApi: {
+      getMyProgress: jest.fn().mockResolvedValue({ data: { level: 1, experience: 0 } }),
+      getMyReport: jest.fn().mockResolvedValue({ data: { exercises_completed: 0 } }),
+      getLeaderboard: jest.fn().mockResolvedValue({ data: { entries: [] } }),
+      getAllProfiles: jest.fn().mockResolvedValue({ data: { profiles: [] } }),
+      getBadges: jest.fn().mockResolvedValue({ data: { badges: [] } }),
+      getSkillCategories: jest.fn().mockResolvedValue({ data: { categories: [] } }),
+    },
     authApi: {
       getUser: jest.fn(),
       getToken: jest.fn(),
@@ -158,6 +166,24 @@ describe('App - Authenticated', () => {
     await waitFor(() => {
       const recordingsButton = screen.getByText(/📼 Recordings/i);
       expect(recordingsButton).toHaveStyle({ backgroundColor: 'rgb(0, 123, 255)' });
+    });
+  });
+
+  test('renders progress tab for all users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/📈 Progress/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to progress view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/📈 Progress/i));
+    });
+    // Verify the progress dashboard is displayed
+    await waitFor(() => {
+      expect(screen.getByText(/Progress Dashboard/i)).toBeInTheDocument();
     });
   });
 });

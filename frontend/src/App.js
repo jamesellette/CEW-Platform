@@ -8,11 +8,12 @@ import Dashboard from './components/Dashboard';
 import AuditLogs from './components/AuditLogs';
 import UserManagement from './components/UserManagement';
 import RecordingsList from './components/RecordingsList';
+import ProgressDashboard from './components/ProgressDashboard';
 import { authApi } from './api';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings'
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -118,6 +119,12 @@ export default function App() {
           >
             📝 Scenarios
           </button>
+          <button
+            onClick={() => setView('progress')}
+            style={view === 'progress' ? navButtonActiveStyle : navButtonStyle}
+          >
+            📈 Progress
+          </button>
           {isInstructorOrAdmin && (
             <button
               onClick={() => setView('recordings')}
@@ -181,6 +188,9 @@ export default function App() {
             onSelect={handleTemplateSelect}
             onCancel={handleCancel}
           />
+        )}
+        {view === 'progress' && (
+          <ProgressDashboard user={user} />
         )}
         {view === 'recordings' && isInstructorOrAdmin && (
           <RecordingsList user={user} />
