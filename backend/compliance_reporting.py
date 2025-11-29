@@ -624,12 +624,20 @@ class ComplianceManager:
                 cat_key = cat.value
                 by_category[cat_key] = by_category.get(cat_key, 0) + hours
         
-        # Hours by NIST function
+        # Hours by NIST function - map category prefixes to functions
         by_function = {}
+        func_prefixes = {
+            NISTFunction.IDENTIFY: "ID",
+            NISTFunction.PROTECT: "PR",
+            NISTFunction.DETECT: "DE",
+            NISTFunction.RESPOND: "RS",
+            NISTFunction.RECOVER: "RC"
+        }
         for cat_key, hours in by_category.items():
-            for func in NISTFunction:
-                if any(cat_key.startswith(func.value.upper()[:2]) for _ in [1]):
+            for func, prefix in func_prefixes.items():
+                if cat_key.startswith(prefix):
                     by_function[func.value] = by_function.get(func.value, 0) + hours
+                    break
         
         return {
             "username": username,

@@ -17,6 +17,7 @@ export default function ComplianceDashboard({ user }) {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
 
   const isInstructorOrAdmin = ['admin', 'instructor'].includes(user?.role);
 
@@ -128,7 +129,8 @@ export default function ComplianceDashboard({ user }) {
   const handleGenerateReport = async () => {
     try {
       const response = await complianceApi.generateIndividualReport({});
-      alert(`Report generated: ${response.data.report_id}`);
+      setSuccessMessage(`Report generated successfully (ID: ${response.data.report_id})`);
+      setTimeout(() => setSuccessMessage(null), 5000);
       await loadReports();
     } catch (err) {
       setError('Failed to generate report');
@@ -176,6 +178,13 @@ export default function ComplianceDashboard({ user }) {
         <div style={errorStyle}>
           {error}
           <button onClick={() => setError(null)} style={dismissBtnStyle}>×</button>
+        </div>
+      )}
+
+      {successMessage && (
+        <div style={successStyle}>
+          {successMessage}
+          <button onClick={() => setSuccessMessage(null)} style={dismissBtnStyle}>×</button>
         </div>
       )}
 
@@ -537,12 +546,23 @@ const errorStyle = {
   alignItems: 'center',
 };
 
+const successStyle = {
+  backgroundColor: '#d4edda',
+  color: '#155724',
+  padding: '12px 16px',
+  borderRadius: '8px',
+  marginBottom: '16px',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+};
+
 const dismissBtnStyle = {
   background: 'none',
   border: 'none',
   fontSize: '20px',
   cursor: 'pointer',
-  color: '#721c24',
+  color: 'inherit',
 };
 
 const tabsStyle = {
