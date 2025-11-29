@@ -46,6 +46,10 @@ from backup_recovery import (
 from external_integrations import (
     external_integrations, IntegrationType, IntegrationStatus, LogLevel
 )
+from rf_ew_simulation import (
+    rf_ew_simulator, SignalType, ModulationType, JammingType,
+    ThreatType, SimulationStatus as RFSimStatus
+)
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -4113,3 +4117,433 @@ async def get_mininet_script(
         media_type="text/x-python",
         headers={"Content-Disposition": f'attachment; filename="mininet_{config_id}.py"'}
     )
+
+
+# ============ RF/EW Simulation Endpoints ============
+# SAFETY NOTE: All RF operations are SIMULATED - no real RF transmission occurs
+
+
+class CreateRFSimulationRequest(BaseModel):
+    """Request to create an RF simulation."""
+    name: str
+    description: str = ""
+    settings: dict = {}
+
+
+class AddSignalRequest(BaseModel):
+    """Request to add a signal."""
+    name: str
+    signal_type: str
+    frequency_hz: float
+    bandwidth_hz: float
+    power_dbm: float
+    modulation: str
+    location: Optional[List[float]] = None
+    metadata: dict = {}
+
+
+class UpdateSignalRequest(BaseModel):
+    """Request to update a signal."""
+    active: Optional[bool] = None
+    frequency_hz: Optional[float] = None
+    power_dbm: Optional[float] = None
+
+
+class AddJammingRequest(BaseModel):
+    """Request to add jamming."""
+    name: str
+    jamming_type: str
+    target_freq_hz: float
+    bandwidth_hz: float
+    power_dbm: float
+    duration_seconds: Optional[float] = None
+
+
+class CaptureSpectrumRequest(BaseModel):
+    """Request to capture spectrum."""
+    center_freq_hz: float
+    bandwidth_hz: float
+    fft_size: int = 1024
+
+
+class CreateSIGINTReportRequest(BaseModel):
+    """Request to create SIGINT report."""
+    signals_analyzed: List[str]
+    threat_assessment: str
+    recommendations: List[str]
+    confidence_level: float
+
+
+# Simulation Management
+
+@app.post("/rf-simulation")
+async def create_rf_simulation(
+    request: CreateRFSimulationRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Create a new RF/EW simulation (simulation only - no real RF)."""
+    sim = rf_ew_simulator.create_simulation(
+        name=request.name,
+        description=request.description,
+        created_by=current_user.username,
+        settings=request.settings
+    )
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="rf_simulation",
+        resource_id=sim.simulation_id,
+        details=f"Created RF simulation: {request.name}"
+    )
+    
+    return sim.to_dict()
+
+
+@app.get("/rf-simulation")
+async def list_rf_simulations(
+    created_by: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List RF simulations."""
+    rstatus = RFSimStatus(status) if status else None
+    
+    sims = rf_ew_simulator.list_simulations(
+        created_by=created_by,
+        status=rstatus
+    )
+    
+    return [s.to_dict() for s in sims]
+
+
+@app.get("/rf-simulation/statistics")
+async def get_rf_simulation_statistics(
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get RF simulation statistics."""
+    return rf_ew_simulator.get_statistics()
+
+
+@app.get("/rf-simulation/frequency-bands")
+async def get_frequency_bands(
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get standard frequency band definitions."""
+    return [b.to_dict() for b in rf_ew_simulator.get_frequency_bands()]
+
+
+@app.get("/rf-simulation/threats")
+async def get_predefined_threats(
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get predefined EW threats for training."""
+    return [t.to_dict() for t in rf_ew_simulator.get_predefined_threats()]
+
+
+@app.get("/rf-simulation/{simulation_id}")
+async def get_rf_simulation(
+    simulation_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get an RF simulation by ID."""
+    sim = rf_ew_simulator.get_simulation(simulation_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    return sim.to_dict()
+
+
+@app.post("/rf-simulation/{simulation_id}/start")
+async def start_rf_simulation(
+    simulation_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Start an RF simulation."""
+    sim = rf_ew_simulator.start_simulation(simulation_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    return sim.to_dict()
+
+
+@app.post("/rf-simulation/{simulation_id}/pause")
+async def pause_rf_simulation(
+    simulation_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Pause an RF simulation."""
+    sim = rf_ew_simulator.pause_simulation(simulation_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    return sim.to_dict()
+
+
+@app.post("/rf-simulation/{simulation_id}/stop")
+async def stop_rf_simulation(
+    simulation_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Stop an RF simulation."""
+    sim = rf_ew_simulator.stop_simulation(simulation_id)
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    return sim.to_dict()
+
+
+@app.delete("/rf-simulation/{simulation_id}")
+async def delete_rf_simulation(
+    simulation_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Delete an RF simulation."""
+    if not rf_ew_simulator.delete_simulation(simulation_id):
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    return {"message": "Simulation deleted"}
+
+
+# Signal Management
+
+@app.post("/rf-simulation/{simulation_id}/signals")
+async def add_signal(
+    simulation_id: str,
+    request: AddSignalRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Add a simulated signal to an RF simulation."""
+    try:
+        signal_type = SignalType(request.signal_type)
+        modulation = ModulationType(request.modulation)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid type: {e}")
+    
+    location = tuple(request.location) if request.location else None
+    
+    signal = rf_ew_simulator.add_signal(
+        simulation_id=simulation_id,
+        name=request.name,
+        signal_type=signal_type,
+        frequency_hz=request.frequency_hz,
+        bandwidth_hz=request.bandwidth_hz,
+        power_dbm=request.power_dbm,
+        modulation=modulation,
+        location=location,
+        metadata=request.metadata
+    )
+    
+    if not signal:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    return signal.to_dict()
+
+
+@app.get("/rf-simulation/{simulation_id}/signals")
+async def list_signals(
+    simulation_id: str,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List signals in an RF simulation."""
+    signals = rf_ew_simulator.list_signals(simulation_id)
+    return [s.to_dict() for s in signals]
+
+
+@app.get("/rf-simulation/{simulation_id}/signals/{signal_id}")
+async def get_signal(
+    simulation_id: str,
+    signal_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get a signal by ID."""
+    signal = rf_ew_simulator.get_signal(simulation_id, signal_id)
+    if not signal:
+        raise HTTPException(status_code=404, detail="Signal not found")
+    return signal.to_dict()
+
+
+@app.put("/rf-simulation/{simulation_id}/signals/{signal_id}")
+async def update_signal(
+    simulation_id: str,
+    signal_id: str,
+    request: UpdateSignalRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Update a signal."""
+    signal = rf_ew_simulator.update_signal(
+        simulation_id=simulation_id,
+        signal_id=signal_id,
+        active=request.active,
+        frequency_hz=request.frequency_hz,
+        power_dbm=request.power_dbm
+    )
+    
+    if not signal:
+        raise HTTPException(status_code=404, detail="Signal not found")
+    
+    return signal.to_dict()
+
+
+@app.delete("/rf-simulation/{simulation_id}/signals/{signal_id}")
+async def remove_signal(
+    simulation_id: str,
+    signal_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Remove a signal from simulation."""
+    if not rf_ew_simulator.remove_signal(simulation_id, signal_id):
+        raise HTTPException(status_code=404, detail="Signal not found")
+    return {"message": "Signal removed"}
+
+
+# Jamming Simulation
+
+@app.post("/rf-simulation/{simulation_id}/jamming")
+async def add_jamming(
+    simulation_id: str,
+    request: AddJammingRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Add a jamming effect to simulation (simulation only)."""
+    try:
+        jamming_type = JammingType(request.jamming_type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid jamming type: {request.jamming_type}")
+    
+    effect = rf_ew_simulator.add_jamming(
+        simulation_id=simulation_id,
+        name=request.name,
+        jamming_type=jamming_type,
+        target_freq_hz=request.target_freq_hz,
+        bandwidth_hz=request.bandwidth_hz,
+        power_dbm=request.power_dbm,
+        duration_seconds=request.duration_seconds
+    )
+    
+    if not effect:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    return effect.to_dict()
+
+
+@app.get("/rf-simulation/{simulation_id}/jamming")
+async def list_jamming(
+    simulation_id: str,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List jamming effects in simulation."""
+    effects = rf_ew_simulator.list_jamming(simulation_id)
+    return [e.to_dict() for e in effects]
+
+
+@app.delete("/rf-simulation/{simulation_id}/jamming/{effect_id}")
+async def remove_jamming(
+    simulation_id: str,
+    effect_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Remove a jamming effect."""
+    if not rf_ew_simulator.remove_jamming(simulation_id, effect_id):
+        raise HTTPException(status_code=404, detail="Jamming effect not found")
+    return {"message": "Jamming effect removed"}
+
+
+# Threat Management
+
+@app.post("/rf-simulation/{simulation_id}/threats/{threat_id}")
+async def add_threat(
+    simulation_id: str,
+    threat_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Add a predefined threat to simulation."""
+    threat = rf_ew_simulator.add_threat(simulation_id, threat_id)
+    if not threat:
+        raise HTTPException(status_code=404, detail="Simulation or threat not found")
+    return threat.to_dict()
+
+
+@app.get("/rf-simulation/{simulation_id}/threats")
+async def list_simulation_threats(
+    simulation_id: str,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List threats in simulation."""
+    threats = rf_ew_simulator.list_threats(simulation_id)
+    return [t.to_dict() for t in threats]
+
+
+@app.delete("/rf-simulation/{simulation_id}/threats/{threat_id}")
+async def remove_threat(
+    simulation_id: str,
+    threat_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Remove a threat from simulation."""
+    if not rf_ew_simulator.remove_threat(simulation_id, threat_id):
+        raise HTTPException(status_code=404, detail="Threat not found")
+    return {"message": "Threat removed"}
+
+
+# Spectrum Analysis
+
+@app.post("/rf-simulation/{simulation_id}/spectrum")
+async def capture_spectrum(
+    simulation_id: str,
+    request: CaptureSpectrumRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Capture a spectrum snapshot (simulated)."""
+    snapshot = rf_ew_simulator.capture_spectrum(
+        simulation_id=simulation_id,
+        center_freq_hz=request.center_freq_hz,
+        bandwidth_hz=request.bandwidth_hz,
+        fft_size=request.fft_size
+    )
+    
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    return snapshot.to_dict()
+
+
+@app.get("/rf-simulation/{simulation_id}/spectrum")
+async def get_spectrum_snapshots(
+    simulation_id: str,
+    limit: int = 10,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get recent spectrum snapshots."""
+    snapshots = rf_ew_simulator.get_snapshots(simulation_id, limit)
+    return [s.to_dict() for s in snapshots]
+
+
+# SIGINT Reports
+
+@app.post("/rf-simulation/{simulation_id}/reports")
+async def create_sigint_report(
+    simulation_id: str,
+    request: CreateSIGINTReportRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Create a SIGINT report."""
+    report = rf_ew_simulator.create_sigint_report(
+        simulation_id=simulation_id,
+        created_by=current_user.username,
+        signals_analyzed=request.signals_analyzed,
+        threat_assessment=request.threat_assessment,
+        recommendations=request.recommendations,
+        confidence_level=request.confidence_level
+    )
+    
+    if not report:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    return report.to_dict()
+
+
+@app.get("/rf-simulation/{simulation_id}/reports")
+async def get_sigint_reports(
+    simulation_id: str,
+    limit: int = 10,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """Get SIGINT reports from simulation."""
+    reports = rf_ew_simulator.get_reports(simulation_id, limit)
+    return [r.to_dict() for r in reports]

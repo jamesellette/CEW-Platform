@@ -670,4 +670,96 @@ export const integrationsApi = {
   getMininetScript: (configId) => api.get(`/emulation/configs/${configId}/script`),
 };
 
+// RF/EW Simulation API - for radio frequency and electronic warfare training (simulation only)
+export const rfSimulationApi = {
+  // Simulation management
+  createSimulation: (name, description = '', settings = {}) =>
+    api.post('/rf-simulation', { name, description, settings }),
+  
+  listSimulations: (createdBy = null, status = null) =>
+    api.get('/rf-simulation', { params: { created_by: createdBy, status } }),
+  
+  getSimulation: (simulationId) => api.get(`/rf-simulation/${simulationId}`),
+  
+  startSimulation: (simulationId) => api.post(`/rf-simulation/${simulationId}/start`),
+  
+  pauseSimulation: (simulationId) => api.post(`/rf-simulation/${simulationId}/pause`),
+  
+  stopSimulation: (simulationId) => api.post(`/rf-simulation/${simulationId}/stop`),
+  
+  deleteSimulation: (simulationId) => api.delete(`/rf-simulation/${simulationId}`),
+  
+  getStatistics: () => api.get('/rf-simulation/statistics'),
+  
+  getFrequencyBands: () => api.get('/rf-simulation/frequency-bands'),
+  
+  getPredefinedThreats: () => api.get('/rf-simulation/threats'),
+  
+  // Signal management
+  addSignal: (simulationId, name, signalType, frequencyHz, bandwidthHz, powerDbm, modulation, location = null, metadata = {}) =>
+    api.post(`/rf-simulation/${simulationId}/signals`, {
+      name,
+      signal_type: signalType,
+      frequency_hz: frequencyHz,
+      bandwidth_hz: bandwidthHz,
+      power_dbm: powerDbm,
+      modulation,
+      location,
+      metadata,
+    }),
+  
+  listSignals: (simulationId) => api.get(`/rf-simulation/${simulationId}/signals`),
+  
+  getSignal: (simulationId, signalId) => api.get(`/rf-simulation/${simulationId}/signals/${signalId}`),
+  
+  updateSignal: (simulationId, signalId, data) => api.put(`/rf-simulation/${simulationId}/signals/${signalId}`, data),
+  
+  removeSignal: (simulationId, signalId) => api.delete(`/rf-simulation/${simulationId}/signals/${signalId}`),
+  
+  // Jamming simulation
+  addJamming: (simulationId, name, jammingType, targetFreqHz, bandwidthHz, powerDbm, durationSeconds = null) =>
+    api.post(`/rf-simulation/${simulationId}/jamming`, {
+      name,
+      jamming_type: jammingType,
+      target_freq_hz: targetFreqHz,
+      bandwidth_hz: bandwidthHz,
+      power_dbm: powerDbm,
+      duration_seconds: durationSeconds,
+    }),
+  
+  listJamming: (simulationId) => api.get(`/rf-simulation/${simulationId}/jamming`),
+  
+  removeJamming: (simulationId, effectId) => api.delete(`/rf-simulation/${simulationId}/jamming/${effectId}`),
+  
+  // Threat management
+  addThreat: (simulationId, threatId) => api.post(`/rf-simulation/${simulationId}/threats/${threatId}`),
+  
+  listThreats: (simulationId) => api.get(`/rf-simulation/${simulationId}/threats`),
+  
+  removeThreat: (simulationId, threatId) => api.delete(`/rf-simulation/${simulationId}/threats/${threatId}`),
+  
+  // Spectrum analysis
+  captureSpectrum: (simulationId, centerFreqHz, bandwidthHz, fftSize = 1024) =>
+    api.post(`/rf-simulation/${simulationId}/spectrum`, {
+      center_freq_hz: centerFreqHz,
+      bandwidth_hz: bandwidthHz,
+      fft_size: fftSize,
+    }),
+  
+  getSpectrumSnapshots: (simulationId, limit = 10) =>
+    api.get(`/rf-simulation/${simulationId}/spectrum`, { params: { limit } }),
+  
+  // SIGINT reports
+  createReport: (simulationId, signalsAnalyzed, threatAssessment, recommendations, confidenceLevel) =>
+    api.post(`/rf-simulation/${simulationId}/reports`, {
+      signals_analyzed: signalsAnalyzed,
+      threat_assessment: threatAssessment,
+      recommendations,
+      confidence_level: confidenceLevel,
+    }),
+  
+  getReports: (simulationId, limit = 10) =>
+    api.get(`/rf-simulation/${simulationId}/reports`, { params: { limit } }),
+};
+
 export default api;
