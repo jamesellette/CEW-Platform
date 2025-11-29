@@ -17,11 +17,12 @@ import RFSimulation from './components/RFSimulation';
 import BackupManager from './components/BackupManager';
 import RateLimitsDashboard from './components/RateLimitsDashboard';
 import IntegrationsManager from './components/IntegrationsManager';
+import ComplianceDashboard from './components/ComplianceDashboard';
 import { authApi } from './api';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress', 'schedule', 'sessions', 'marketplace', 'topology-editor', 'rf-simulation', 'backups', 'rate-limits', 'integrations'
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress', 'schedule', 'sessions', 'marketplace', 'topology-editor', 'rf-simulation', 'backups', 'rate-limits', 'integrations', 'compliance'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -159,6 +160,12 @@ export default function App() {
           >
             📈 Progress
           </button>
+          <button
+            onClick={() => setView('compliance')}
+            style={view === 'compliance' ? navButtonActiveStyle : navButtonStyle}
+          >
+            📋 Compliance
+          </button>
           {isInstructorOrAdmin && (
             <button
               onClick={() => setView('rf-simulation')}
@@ -278,6 +285,9 @@ export default function App() {
         )}
         {view === 'audit' && isInstructorOrAdmin && (
           <AuditLogs />
+        )}
+        {view === 'compliance' && (
+          <ComplianceDashboard user={user} />
         )}
         {view === 'backups' && isAdmin && (
           <BackupManager user={user} />

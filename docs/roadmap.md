@@ -106,14 +106,14 @@ The following features have been fully implemented with both backend APIs and fr
 - Offline page with cached content support
 - Install-to-home-screen capability
 
-### 15. Compliance Reporting
-**Current State**: Basic audit logs  
-**Proposed**: Compliance automation
-
-- NIST Cybersecurity Framework mapping
-- Training hour tracking for certifications
-- Exportable compliance reports
-- Integration with HR/training management systems
+### 15. Compliance Reporting ✅
+**Status**: Implemented
+- NIST Cybersecurity Framework mapping for scenarios
+- Training hour tracking with certification integration
+- Exportable compliance reports (JSON/CSV)
+- User certification enrollment and tracking
+- Compliance dashboard with progress visualization
+- Support for CISSP, CEH, CompTIA, and custom certifications
 
 ### 16. Kubernetes Deployment Support
 **Current State**: Docker Compose only  
@@ -178,6 +178,7 @@ The following features have been fully implemented with both backend APIs and fr
 | External Integrations | ✅ Done | High | High | P3 |
 | RF/EW Simulation | ✅ Done | High | High | P2 |
 | Mobile Support (PWA) | ✅ Done | Medium | Medium | P3 |
+| Compliance Reporting | ✅ Done | High | Medium | P2 |
 | Docker Integration | Pending | High | Medium | P1 |
 | AI Scenario Generation | Pending | High | Very High | P4 |
 | Kubernetes Support | Pending | High | High | P3 |
