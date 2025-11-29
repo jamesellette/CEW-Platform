@@ -93,15 +93,15 @@ export default function App() {
   return (
     <div style={containerStyle}>
       <header style={headerStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={headerInnerStyle}>
           <div>
-            <h1>CEW Training Platform</h1>
-            <p style={{ color: '#666', margin: 0 }}>
+            <h1 style={titleStyle}>CEW Training Platform</h1>
+            <p style={subtitleStyle}>
               Cyber &amp; Electronic Warfare Training Environment
             </p>
           </div>
           <div style={userInfoStyle}>
-            <span>
+            <span style={userNameStyle}>
               👤 {user.full_name || user.username}
               <span style={roleBadgeStyle}>{user.role}</span>
             </span>
@@ -111,7 +111,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Navigation tabs */}
+        {/* Navigation tabs - horizontally scrollable on mobile */}
         <nav style={navStyle}>
           {isInstructorOrAdmin && (
             <button
@@ -228,7 +228,7 @@ export default function App() {
 
         {view === 'list' && (
           <>
-            <div style={{ marginBottom: '16px' }}>
+            <div style={buttonContainerStyle}>
               <button onClick={handleCreateNew} style={btnPrimaryStyle}>
                 + Create New Scenario
               </button>
@@ -302,17 +302,46 @@ export default function App() {
   );
 }
 
+// Mobile-responsive styles using CSS-in-JS
+// These styles adapt to different screen sizes
+
 const containerStyle = {
-  fontFamily: 'Arial, sans-serif',
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   maxWidth: '1200px',
   margin: '0 auto',
-  padding: '20px',
+  padding: '16px',
+  minHeight: '100vh',
+  display: 'flex',
+  flexDirection: 'column',
 };
 
 const headerStyle = {
   borderBottom: '2px solid #333',
   paddingBottom: '16px',
   marginBottom: '20px',
+  position: 'sticky',
+  top: 0,
+  backgroundColor: 'var(--color-bg, #ffffff)',
+  zIndex: 100,
+};
+
+const headerInnerStyle = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: '12px',
+};
+
+const titleStyle = {
+  margin: 0,
+  fontSize: 'clamp(1.25rem, 4vw, 1.75rem)',
+};
+
+const subtitleStyle = {
+  color: '#666',
+  margin: 0,
+  fontSize: 'clamp(0.75rem, 2vw, 0.875rem)',
 };
 
 const navStyle = {
@@ -320,16 +349,28 @@ const navStyle = {
   display: 'flex',
   gap: '8px',
   flexWrap: 'wrap',
+  overflowX: 'auto',
+  WebkitOverflowScrolling: 'touch',
+  scrollbarWidth: 'none',
+  msOverflowStyle: 'none',
+  paddingBottom: '4px',
 };
 
 const navButtonStyle = {
-  padding: '8px 16px',
+  padding: '10px 16px',
   backgroundColor: '#e9ecef',
   color: '#333',
   border: 'none',
-  borderRadius: '4px',
+  borderRadius: '8px',
   cursor: 'pointer',
   fontSize: '14px',
+  whiteSpace: 'nowrap',
+  minHeight: '44px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  transition: 'background-color 0.2s, transform 0.1s',
+  touchAction: 'manipulation',
 };
 
 const navButtonActiveStyle = {
@@ -341,7 +382,15 @@ const navButtonActiveStyle = {
 const userInfoStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: '12px',
+  gap: '8px',
+  flexWrap: 'wrap',
+};
+
+const userNameStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  fontSize: '14px',
 };
 
 const roleBadgeStyle = {
@@ -349,49 +398,78 @@ const roleBadgeStyle = {
   color: 'white',
   padding: '2px 8px',
   borderRadius: '12px',
-  fontSize: '12px',
-  marginLeft: '8px',
+  fontSize: '11px',
+  marginLeft: '4px',
   textTransform: 'uppercase',
+  fontWeight: '600',
 };
 
 const logoutButtonStyle = {
-  padding: '6px 12px',
+  padding: '8px 16px',
   backgroundColor: '#6c757d',
   color: 'white',
   border: 'none',
-  borderRadius: '4px',
+  borderRadius: '6px',
   cursor: 'pointer',
+  fontSize: '14px',
+  minHeight: '44px',
+  touchAction: 'manipulation',
+  transition: 'background-color 0.2s',
 };
 
 const mainStyle = {
   minHeight: '400px',
+  flex: 1,
+  paddingBottom: '80px', // Space for potential bottom navigation
 };
 
 const footerStyle = {
-  marginTop: '40px',
+  marginTop: 'auto',
   paddingTop: '16px',
+  paddingBottom: '16px',
   borderTop: '1px solid #ddd',
   textAlign: 'center',
   color: '#999',
+  fontSize: '12px',
+};
+
+const buttonContainerStyle = {
+  marginBottom: '16px',
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '8px',
 };
 
 const btnPrimaryStyle = {
-  padding: '10px 20px',
+  padding: '12px 20px',
   backgroundColor: '#28a745',
   color: 'white',
   border: 'none',
-  borderRadius: '4px',
+  borderRadius: '8px',
   cursor: 'pointer',
   fontSize: '14px',
-  marginRight: '10px',
+  minHeight: '44px',
+  touchAction: 'manipulation',
+  transition: 'background-color 0.2s, transform 0.1s',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '6px',
 };
 
 const btnSecondaryStyle = {
-  padding: '10px 20px',
+  padding: '12px 20px',
   backgroundColor: '#17a2b8',
   color: 'white',
   border: 'none',
-  borderRadius: '4px',
+  borderRadius: '8px',
   cursor: 'pointer',
   fontSize: '14px',
+  minHeight: '44px',
+  touchAction: 'manipulation',
+  transition: 'background-color 0.2s, transform 0.1s',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '6px',
 };

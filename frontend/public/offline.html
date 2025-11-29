@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#007bff" />
+  <title>Offline - CEW Training Platform</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      color: #ffffff;
+    }
+    
+    .offline-container {
+      text-align: center;
+      max-width: 500px;
+      padding: 40px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+    
+    .offline-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+    
+    h1 {
+      font-size: 28px;
+      margin-bottom: 16px;
+      color: #ffffff;
+    }
+    
+    p {
+      font-size: 16px;
+      line-height: 1.6;
+      color: #b0b0b0;
+      margin-bottom: 24px;
+    }
+    
+    .retry-btn {
+      display: inline-block;
+      padding: 12px 32px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.2s, transform 0.2s;
+      text-decoration: none;
+    }
+    
+    .retry-btn:hover {
+      background-color: #0056b3;
+      transform: translateY(-2px);
+    }
+    
+    .retry-btn:active {
+      transform: translateY(0);
+    }
+    
+    .cached-features {
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .cached-features h3 {
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #888;
+      margin-bottom: 12px;
+    }
+    
+    .feature-list {
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+    }
+    
+    .feature-list li {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 6px 12px;
+      border-radius: 16px;
+      font-size: 12px;
+      color: #ccc;
+    }
+    
+    .warning-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 193, 7, 0.2);
+      color: #ffc107;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-top: 16px;
+    }
+    
+    @media (max-width: 480px) {
+      .offline-container {
+        padding: 24px;
+      }
+      
+      h1 {
+        font-size: 22px;
+      }
+      
+      .offline-icon {
+        font-size: 48px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="offline-container">
+    <div class="offline-icon">📡</div>
+    <h1>You're Offline</h1>
+    <p>
+      The CEW Training Platform requires a network connection for most features.
+      Please check your internet connection and try again.
+    </p>
+    <button class="retry-btn" onclick="window.location.reload()">
+      Try Again
+    </button>
+    
+    <div class="cached-features">
+      <h3>Available Offline</h3>
+      <ul class="feature-list">
+        <li>📋 Cached Scenarios</li>
+        <li>📖 Reference Data</li>
+        <li>🎯 MITRE ATT&CK Info</li>
+        <li>📡 RF Band References</li>
+      </ul>
+    </div>
+    
+    <div class="warning-badge">
+      ⚠️ Training environment - Not for operational use
+    </div>
+  </div>
+  
+  <script>
+    // Check connection status
+    window.addEventListener('online', () => {
+      window.location.reload();
+    });
+    
+    // Register for connection changes
+    if ('connection' in navigator) {
+      navigator.connection.addEventListener('change', () => {
+        if (navigator.onLine) {
+          window.location.reload();
+        }
+      });
+    }
+  </script>
+</body>
+</html>

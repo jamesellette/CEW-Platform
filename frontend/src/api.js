@@ -392,7 +392,7 @@ export const notificationApi = {
 };
 
 // Topology Editor API - for visual network topology building
-export const topologyApi = {
+export const topologyEditorApi = {
   // Topology management
   createTopology: (name, description, metadata = null) =>
     api.post('/topology-editor', { name, description, metadata }),

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { topologyApi } from '../api';
+import { topologyEditorApi as topologyApi } from '../api';
 
 /**
  * Visual Network Topology Editor component.

@@ -98,14 +98,13 @@ The following features have been fully implemented with both backend APIs and fr
 - Natural language scenario description
 - Toggle-able in settings for Manual or AI assisted
 
-### 14. Mobile Support
-**Current State**: Desktop-only UI  
-**Proposed**: Responsive mobile experience
-
-- Progressive Web App (PWA) support
-- Mobile-optimized dashboard
-- Push notifications for exercise alerts
-- Offline scenario review
+### 14. Mobile Support ✅
+**Status**: Implemented  
+- Progressive Web App (PWA) support with service worker
+- Mobile-responsive UI with touch-friendly controls
+- Push notification scaffolding for exercise alerts
+- Offline page with cached content support
+- Install-to-home-screen capability
 
 ### 15. Compliance Reporting
 **Current State**: Basic audit logs  
@@ -178,9 +177,9 @@ The following features have been fully implemented with both backend APIs and fr
 | Backup & Recovery | ✅ Done | High | Medium | P2 |
 | External Integrations | ✅ Done | High | High | P3 |
 | RF/EW Simulation | ✅ Done | High | High | P2 |
+| Mobile Support (PWA) | ✅ Done | Medium | Medium | P3 |
 | Docker Integration | Pending | High | Medium | P1 |
 | AI Scenario Generation | Pending | High | Very High | P4 |
-| Mobile Support | Pending | Medium | Medium | P3 |
 | Kubernetes Support | Pending | High | High | P3 |
 | Advanced Auth (SSO/MFA) | Pending | Medium | High | P3 |
 
