@@ -43,6 +43,9 @@ from rate_limiting import (
 from backup_recovery import (
     backup_manager, BackupType, BackupStatus, RestoreStatus
 )
+from external_integrations import (
+    external_integrations, IntegrationType, IntegrationStatus, LogLevel
+)
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -3617,3 +3620,496 @@ async def delete_backup_schedule(
     )
     
     return {"message": "Schedule deleted"}
+
+
+# ============ External Integrations Endpoints ============
+
+
+class CreateIntegrationRequest(BaseModel):
+    """Request to create an integration."""
+    integration_type: str
+    name: str
+    config: dict = {}
+    enabled: bool = True
+
+
+class UpdateIntegrationRequest(BaseModel):
+    """Request to update an integration."""
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+    config: Optional[dict] = None
+
+
+class CreateAttackMappingRequest(BaseModel):
+    """Request to create an ATT&CK mapping."""
+    scenario_id: str
+    scenario_name: str
+    techniques: List[str]
+    notes: str = ""
+
+
+class UpdateAttackMappingRequest(BaseModel):
+    """Request to update an ATT&CK mapping."""
+    techniques: Optional[List[str]] = None
+    notes: Optional[str] = None
+
+
+class CreateForwardingRuleRequest(BaseModel):
+    """Request to create a forwarding rule."""
+    name: str
+    integration_id: str
+    log_levels: List[str] = ["info", "warning", "error"]
+    source_filter: Optional[str] = None
+    batch_size: int = 100
+    flush_interval: int = 30
+
+
+class UpdateForwardingRuleRequest(BaseModel):
+    """Request to update a forwarding rule."""
+    enabled: Optional[bool] = None
+    log_levels: Optional[List[str]] = None
+    source_filter: Optional[str] = None
+    batch_size: Optional[int] = None
+
+
+class CreateEmulationConfigRequest(BaseModel):
+    """Request to create an emulation config."""
+    name: str
+    topology_id: str
+    emulator_type: str
+    controller: str = "default"
+    link_params: dict = {}
+    host_params: dict = {}
+    switch_params: dict = {}
+
+
+# Integration Management
+
+@app.post("/integrations")
+async def create_integration(
+    request: CreateIntegrationRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Create a new external integration."""
+    try:
+        integration_type = IntegrationType(request.integration_type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid integration type: {request.integration_type}")
+    
+    config = external_integrations.create_integration(
+        integration_type=integration_type,
+        name=request.name,
+        created_by=current_user.username,
+        config=request.config,
+        enabled=request.enabled
+    )
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="integration",
+        resource_id=config.integration_id,
+        details=f"Created {integration_type.value} integration: {request.name}"
+    )
+    
+    return config.to_dict()
+
+
+@app.get("/integrations")
+async def list_integrations(
+    integration_type: Optional[str] = None,
+    enabled_only: bool = False,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> List[dict]:
+    """List external integrations."""
+    itype = IntegrationType(integration_type) if integration_type else None
+    
+    integrations = external_integrations.list_integrations(
+        integration_type=itype,
+        enabled_only=enabled_only
+    )
+    
+    return [i.to_dict() for i in integrations]
+
+
+@app.get("/integrations/statistics")
+async def get_integration_statistics(
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Get external integration statistics."""
+    return external_integrations.get_statistics()
+
+
+@app.get("/integrations/{integration_id}")
+async def get_integration(
+    integration_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Get an integration by ID."""
+    integration = external_integrations.get_integration(integration_id)
+    if not integration:
+        raise HTTPException(status_code=404, detail="Integration not found")
+    return integration.to_dict()
+
+
+@app.put("/integrations/{integration_id}")
+async def update_integration(
+    integration_id: str,
+    request: UpdateIntegrationRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Update an integration."""
+    integration = external_integrations.update_integration(
+        integration_id=integration_id,
+        name=request.name,
+        enabled=request.enabled,
+        config=request.config
+    )
+    
+    if not integration:
+        raise HTTPException(status_code=404, detail="Integration not found")
+    
+    return integration.to_dict()
+
+
+@app.delete("/integrations/{integration_id}")
+async def delete_integration(
+    integration_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Delete an integration."""
+    if not external_integrations.delete_integration(integration_id):
+        raise HTTPException(status_code=404, detail="Integration not found")
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="integration",
+        resource_id=integration_id,
+        details="Deleted integration"
+    )
+    
+    return {"message": "Integration deleted"}
+
+
+@app.post("/integrations/{integration_id}/test")
+async def test_integration(
+    integration_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Test integration connectivity."""
+    result = external_integrations.test_integration(integration_id)
+    return result
+
+
+# MITRE ATT&CK
+
+@app.get("/mitre-attack/tactics")
+async def get_attack_tactics(
+    current_user: User = Depends(get_current_user)
+) -> List[str]:
+    """Get MITRE ATT&CK tactics."""
+    return external_integrations.get_tactics()
+
+
+@app.get("/mitre-attack/techniques")
+async def list_attack_techniques(
+    tactic: Optional[str] = None,
+    platform: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List MITRE ATT&CK techniques."""
+    techniques = external_integrations.list_techniques(
+        tactic=tactic,
+        platform=platform,
+        search=search
+    )
+    return [t.to_dict() for t in techniques]
+
+
+@app.get("/mitre-attack/techniques/{technique_id}")
+async def get_attack_technique(
+    technique_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get a MITRE ATT&CK technique by ID."""
+    technique = external_integrations.get_technique(technique_id)
+    if not technique:
+        raise HTTPException(status_code=404, detail="Technique not found")
+    return technique.to_dict()
+
+
+@app.post("/mitre-attack/mappings")
+async def create_attack_mapping(
+    request: CreateAttackMappingRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Create a MITRE ATT&CK mapping for a scenario."""
+    mapping = external_integrations.create_attack_mapping(
+        scenario_id=request.scenario_id,
+        scenario_name=request.scenario_name,
+        techniques=request.techniques,
+        created_by=current_user.username,
+        notes=request.notes
+    )
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="attack_mapping",
+        resource_id=mapping.mapping_id,
+        details=f"Created ATT&CK mapping for scenario {request.scenario_id}"
+    )
+    
+    return mapping.to_dict()
+
+
+@app.get("/mitre-attack/mappings")
+async def list_attack_mappings(
+    created_by: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List MITRE ATT&CK mappings."""
+    mappings = external_integrations.list_attack_mappings(created_by=created_by)
+    return [m.to_dict() for m in mappings]
+
+
+@app.get("/mitre-attack/mappings/{mapping_id}")
+async def get_attack_mapping_endpoint(
+    mapping_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get an ATT&CK mapping by ID."""
+    mapping = external_integrations.get_attack_mapping(mapping_id)
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    return mapping.to_dict()
+
+
+@app.get("/mitre-attack/mappings/{mapping_id}/details")
+async def get_attack_mapping_details(
+    mapping_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get detailed ATT&CK mapping with technique info."""
+    details = external_integrations.get_mapping_details(mapping_id)
+    if not details:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    return details
+
+
+@app.get("/mitre-attack/scenarios/{scenario_id}/mapping")
+async def get_scenario_attack_mapping(
+    scenario_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get ATT&CK mapping for a scenario."""
+    mapping = external_integrations.get_mapping_for_scenario(scenario_id)
+    if not mapping:
+        raise HTTPException(status_code=404, detail="No mapping found for this scenario")
+    return mapping.to_dict()
+
+
+@app.put("/mitre-attack/mappings/{mapping_id}")
+async def update_attack_mapping_endpoint(
+    mapping_id: str,
+    request: UpdateAttackMappingRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Update an ATT&CK mapping."""
+    mapping = external_integrations.update_attack_mapping(
+        mapping_id=mapping_id,
+        techniques=request.techniques,
+        notes=request.notes
+    )
+    
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    
+    return mapping.to_dict()
+
+
+@app.delete("/mitre-attack/mappings/{mapping_id}")
+async def delete_attack_mapping_endpoint(
+    mapping_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Delete an ATT&CK mapping."""
+    if not external_integrations.delete_attack_mapping(mapping_id):
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    
+    return {"message": "Mapping deleted"}
+
+
+# Log Forwarding
+
+@app.post("/log-forwarding/rules")
+async def create_forwarding_rule(
+    request: CreateForwardingRuleRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Create a log forwarding rule."""
+    try:
+        log_levels = [LogLevel(l) for l in request.log_levels]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid log level: {e}")
+    
+    rule = external_integrations.create_forwarding_rule(
+        name=request.name,
+        integration_id=request.integration_id,
+        log_levels=log_levels,
+        source_filter=request.source_filter,
+        batch_size=request.batch_size,
+        flush_interval=request.flush_interval
+    )
+    
+    return rule.to_dict()
+
+
+@app.get("/log-forwarding/rules")
+async def list_forwarding_rules(
+    integration_id: Optional[str] = None,
+    enabled_only: bool = False,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> List[dict]:
+    """List log forwarding rules."""
+    rules = external_integrations.list_forwarding_rules(
+        integration_id=integration_id,
+        enabled_only=enabled_only
+    )
+    return [r.to_dict() for r in rules]
+
+
+@app.get("/log-forwarding/rules/{rule_id}")
+async def get_forwarding_rule(
+    rule_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Get a forwarding rule by ID."""
+    rule = external_integrations.get_forwarding_rule(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return rule.to_dict()
+
+
+@app.put("/log-forwarding/rules/{rule_id}")
+async def update_forwarding_rule_endpoint(
+    rule_id: str,
+    request: UpdateForwardingRuleRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Update a forwarding rule."""
+    log_levels = None
+    if request.log_levels:
+        try:
+            log_levels = [LogLevel(l) for l in request.log_levels]
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid log level: {e}")
+    
+    rule = external_integrations.update_forwarding_rule(
+        rule_id=rule_id,
+        enabled=request.enabled,
+        log_levels=log_levels,
+        source_filter=request.source_filter,
+        batch_size=request.batch_size
+    )
+    
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    
+    return rule.to_dict()
+
+
+@app.delete("/log-forwarding/rules/{rule_id}")
+async def delete_forwarding_rule_endpoint(
+    rule_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Delete a forwarding rule."""
+    if not external_integrations.delete_forwarding_rule(rule_id):
+        raise HTTPException(status_code=404, detail="Rule not found")
+    
+    return {"message": "Rule deleted"}
+
+
+# Network Emulation
+
+@app.post("/emulation/configs")
+async def create_emulation_config(
+    request: CreateEmulationConfigRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Create a network emulation configuration."""
+    if request.emulator_type not in ["mininet", "core"]:
+        raise HTTPException(status_code=400, detail="Invalid emulator type. Use 'mininet' or 'core'")
+    
+    config = external_integrations.create_emulation_config(
+        name=request.name,
+        topology_id=request.topology_id,
+        emulator_type=request.emulator_type,
+        controller=request.controller,
+        link_params=request.link_params or {"bw": 10, "delay": "5ms"},
+        host_params=request.host_params,
+        switch_params=request.switch_params
+    )
+    
+    return config.to_dict()
+
+
+@app.get("/emulation/configs")
+async def list_emulation_configs(
+    topology_id: Optional[str] = None,
+    emulator_type: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+) -> List[dict]:
+    """List network emulation configurations."""
+    configs = external_integrations.list_emulation_configs(
+        topology_id=topology_id,
+        emulator_type=emulator_type
+    )
+    return [c.to_dict() for c in configs]
+
+
+@app.get("/emulation/configs/{config_id}")
+async def get_emulation_config(
+    config_id: str,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get an emulation config by ID."""
+    config = external_integrations.get_emulation_config(config_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Config not found")
+    return config.to_dict()
+
+
+@app.delete("/emulation/configs/{config_id}")
+async def delete_emulation_config(
+    config_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Delete an emulation config."""
+    if not external_integrations.delete_emulation_config(config_id):
+        raise HTTPException(status_code=404, detail="Config not found")
+    
+    return {"message": "Config deleted"}
+
+
+@app.get("/emulation/configs/{config_id}/script")
+async def get_mininet_script(
+    config_id: str,
+    current_user: User = Depends(get_current_user)
+) -> Response:
+    """Generate a Mininet Python script from config."""
+    script = external_integrations.generate_mininet_script(config_id)
+    if not script:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not generate script. Config not found or not a Mininet config."
+        )
+    
+    return Response(
+        content=script,
+        media_type="text/x-python",
+        headers={"Content-Disposition": f'attachment; filename="mininet_{config_id}.py"'}
+    )

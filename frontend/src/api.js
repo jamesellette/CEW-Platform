@@ -575,4 +575,99 @@ export const backupApi = {
   deleteSchedule: (scheduleId) => api.delete(`/backup-schedules/${scheduleId}`),
 };
 
+// External Integrations API - for external tool integrations
+export const integrationsApi = {
+  // Integration Management
+  createIntegration: (integrationType, name, config = {}, enabled = true) =>
+    api.post('/integrations', {
+      integration_type: integrationType,
+      name,
+      config,
+      enabled,
+    }),
+  
+  listIntegrations: (integrationType = null, enabledOnly = false) =>
+    api.get('/integrations', { params: { integration_type: integrationType, enabled_only: enabledOnly } }),
+  
+  getIntegration: (integrationId) => api.get(`/integrations/${integrationId}`),
+  
+  updateIntegration: (integrationId, data) => api.put(`/integrations/${integrationId}`, data),
+  
+  deleteIntegration: (integrationId) => api.delete(`/integrations/${integrationId}`),
+  
+  testIntegration: (integrationId) => api.post(`/integrations/${integrationId}/test`),
+  
+  getStatistics: () => api.get('/integrations/statistics'),
+  
+  // MITRE ATT&CK
+  getTactics: () => api.get('/mitre-attack/tactics'),
+  
+  listTechniques: (tactic = null, platform = null, search = null) =>
+    api.get('/mitre-attack/techniques', { params: { tactic, platform, search } }),
+  
+  getTechnique: (techniqueId) => api.get(`/mitre-attack/techniques/${techniqueId}`),
+  
+  createMapping: (scenarioId, scenarioName, techniques, notes = '') =>
+    api.post('/mitre-attack/mappings', {
+      scenario_id: scenarioId,
+      scenario_name: scenarioName,
+      techniques,
+      notes,
+    }),
+  
+  listMappings: (createdBy = null) =>
+    api.get('/mitre-attack/mappings', { params: { created_by: createdBy } }),
+  
+  getMapping: (mappingId) => api.get(`/mitre-attack/mappings/${mappingId}`),
+  
+  getMappingDetails: (mappingId) => api.get(`/mitre-attack/mappings/${mappingId}/details`),
+  
+  getScenarioMapping: (scenarioId) => api.get(`/mitre-attack/scenarios/${scenarioId}/mapping`),
+  
+  updateMapping: (mappingId, data) => api.put(`/mitre-attack/mappings/${mappingId}`, data),
+  
+  deleteMapping: (mappingId) => api.delete(`/mitre-attack/mappings/${mappingId}`),
+  
+  // Log Forwarding
+  createForwardingRule: (name, integrationId, logLevels = ['info', 'warning', 'error'], sourceFilter = null, batchSize = 100, flushInterval = 30) =>
+    api.post('/log-forwarding/rules', {
+      name,
+      integration_id: integrationId,
+      log_levels: logLevels,
+      source_filter: sourceFilter,
+      batch_size: batchSize,
+      flush_interval: flushInterval,
+    }),
+  
+  listForwardingRules: (integrationId = null, enabledOnly = false) =>
+    api.get('/log-forwarding/rules', { params: { integration_id: integrationId, enabled_only: enabledOnly } }),
+  
+  getForwardingRule: (ruleId) => api.get(`/log-forwarding/rules/${ruleId}`),
+  
+  updateForwardingRule: (ruleId, data) => api.put(`/log-forwarding/rules/${ruleId}`, data),
+  
+  deleteForwardingRule: (ruleId) => api.delete(`/log-forwarding/rules/${ruleId}`),
+  
+  // Network Emulation
+  createEmulationConfig: (name, topologyId, emulatorType, controller = 'default', linkParams = {}, hostParams = {}, switchParams = {}) =>
+    api.post('/emulation/configs', {
+      name,
+      topology_id: topologyId,
+      emulator_type: emulatorType,
+      controller,
+      link_params: linkParams,
+      host_params: hostParams,
+      switch_params: switchParams,
+    }),
+  
+  listEmulationConfigs: (topologyId = null, emulatorType = null) =>
+    api.get('/emulation/configs', { params: { topology_id: topologyId, emulator_type: emulatorType } }),
+  
+  getEmulationConfig: (configId) => api.get(`/emulation/configs/${configId}`),
+  
+  deleteEmulationConfig: (configId) => api.delete(`/emulation/configs/${configId}`),
+  
+  getMininetScript: (configId) => api.get(`/emulation/configs/${configId}/script`),
+};
+
 export default api;
