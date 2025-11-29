@@ -152,7 +152,7 @@ export default function IntegrationsManager({ user }) {
       try {
         config = JSON.parse(integrationForm.config);
       } catch {
-        setActionError('Invalid JSON in config');
+        setActionError('Invalid JSON format in configuration. Please check for proper syntax, quotes, and brackets.');
         return;
       }
       await integrationsApi.createIntegration(

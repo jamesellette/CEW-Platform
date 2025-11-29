@@ -130,11 +130,16 @@ export default function RateLimitsDashboard({ user }) {
   // Block user
   const handleBlockUser = async (e) => {
     e.preventDefault();
+    const duration = parseInt(blockForm.duration, 10);
+    if (isNaN(duration) || duration <= 0) {
+      setActionError('Please enter a valid positive duration in minutes');
+      return;
+    }
     try {
-      await rateLimitApi.blockUser(blockForm.userId, parseInt(blockForm.duration));
+      await rateLimitApi.blockUser(blockForm.userId, duration);
       setShowBlockUserForm(false);
       setBlockForm({ userId: '', duration: 60 });
-      setSuccessMessage(`User ${blockForm.userId} blocked for ${blockForm.duration} minutes`);
+      setSuccessMessage(`User ${blockForm.userId} blocked for ${duration} minutes`);
       fetchViolations();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {

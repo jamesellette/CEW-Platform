@@ -145,7 +145,7 @@ export default function BackupManager({ user }) {
 
   // Restore backup
   const handleRestoreBackup = async (backupId) => {
-    if (!window.confirm('Are you sure you want to restore from this backup? Current data may be overwritten.')) {
+    if (!window.confirm('Are you sure you want to restore from this backup?\n\n⚠️ WARNING: This action cannot be undone. Current data will be overwritten and active lab sessions may be affected.')) {
       return;
     }
     try {
