@@ -57,11 +57,16 @@ jest.mock('./api', () => {
       getBadges: jest.fn().mockResolvedValue({ data: { badges: [] } }),
       getSkillCategories: jest.fn().mockResolvedValue({ data: { categories: [] } }),
     },
-    schedulingApi: {
+    scheduleApi: {
       getUpcoming: jest.fn().mockResolvedValue({ data: { schedules: [] } }),
       getMySchedules: jest.fn().mockResolvedValue({ data: { schedules: [] } }),
       getCalendar: jest.fn().mockResolvedValue({ data: { schedules_by_day: {} } }),
       listSchedules: jest.fn().mockResolvedValue({ data: { schedules: [] } }),
+    },
+    sessionApi: {
+      listSessions: jest.fn().mockResolvedValue({ data: { sessions: [] } }),
+      getMySessions: jest.fn().mockResolvedValue({ data: { sessions: [] } }),
+      getSession: jest.fn().mockResolvedValue({ data: {} }),
     },
     authApi: {
       getUser: jest.fn(),
@@ -208,6 +213,24 @@ describe('App - Authenticated', () => {
     // Verify the schedule manager is displayed
     await waitFor(() => {
       expect(screen.getByText(/Exercise Schedule/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders sessions tab for all users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/👥 Sessions/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to sessions view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/👥 Sessions/i));
+    });
+    // Verify the multi-user sessions is displayed
+    await waitFor(() => {
+      expect(screen.getByText(/Multi-User Sessions/i)).toBeInTheDocument();
     });
   });
 });

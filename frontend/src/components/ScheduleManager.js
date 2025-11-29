@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { schedulingApi, scenarioApi } from '../api';
+import { scheduleApi, scenarioApi } from '../api';
 
 // Constants for display
 const CALENDAR_EVENT_TITLE_MAX_LENGTH = 12;
@@ -45,7 +45,7 @@ export default function ScheduleManager({ user }) {
   // Fetch upcoming schedules
   const fetchUpcoming = useCallback(async () => {
     try {
-      const response = await schedulingApi.getUpcoming(14);
+      const response = await scheduleApi.getUpcoming(14);
       setSchedules(response.data.schedules || []);
     } catch (err) {
       console.error('Failed to load schedules:', err);
@@ -55,7 +55,7 @@ export default function ScheduleManager({ user }) {
   // Fetch my schedules
   const fetchMySchedules = useCallback(async () => {
     try {
-      const response = await schedulingApi.getMySchedules();
+      const response = await scheduleApi.getMySchedules();
       setMySchedules(response.data.schedules || []);
     } catch (err) {
       console.error('Failed to load my schedules:', err);
@@ -75,7 +75,7 @@ export default function ScheduleManager({ user }) {
   // Fetch calendar data
   const fetchCalendar = useCallback(async () => {
     try {
-      const response = await schedulingApi.getCalendar(calendarYear, calendarMonth);
+      const response = await scheduleApi.getCalendar(calendarYear, calendarMonth);
       setCalendarData(response.data);
     } catch (err) {
       console.error('Failed to load calendar:', err);
@@ -128,22 +128,20 @@ export default function ScheduleManager({ user }) {
     } : null;
 
     try {
-      await schedulingApi.createSchedule(
-        formData.title,
-        formData.description,
-        formData.scenarioId,
-        formData.scenarioName,
-        startDateTime,
-        endDateTime,
-        {
-          participants,
-          notificationsEnabled: formData.notificationsEnabled,
-          autoProvision: formData.autoProvision,
-          autoTeardown: formData.autoTeardown,
-          recurrence,
-          notes: formData.notes,
-        }
-      );
+      await scheduleApi.createSchedule({
+        title: formData.title,
+        description: formData.description,
+        scenario_id: formData.scenarioId,
+        scenario_name: formData.scenarioName,
+        start_time: startDateTime,
+        end_time: endDateTime,
+        participants,
+        notifications_enabled: formData.notificationsEnabled,
+        auto_provision: formData.autoProvision,
+        auto_teardown: formData.autoTeardown,
+        recurrence,
+        notes: formData.notes,
+      });
       
       setShowCreateForm(false);
       resetForm();
@@ -189,7 +187,7 @@ export default function ScheduleManager({ user }) {
     if (!window.confirm('Are you sure you want to cancel this scheduled exercise?')) return;
     
     try {
-      await schedulingApi.cancelSchedule(scheduleId);
+      await scheduleApi.cancelSchedule(scheduleId);
       setActionError(null);
       await loadAllData();
     } catch (err) {
@@ -200,7 +198,7 @@ export default function ScheduleManager({ user }) {
 
   const handleStartSchedule = async (scheduleId) => {
     try {
-      await schedulingApi.startSchedule(scheduleId);
+      await scheduleApi.startExercise(scheduleId);
       setActionError(null);
       await loadAllData();
     } catch (err) {
@@ -446,7 +444,9 @@ export default function ScheduleManager({ user }) {
                         <div style={calendarEventsStyle}>
                           {cell.schedules.slice(0, 2).map((s, i) => (
                             <div key={i} style={calendarEventStyle}>
-                              {s.title?.substring(0, CALENDAR_EVENT_TITLE_MAX_LENGTH)}...
+                              {s.title?.length > CALENDAR_EVENT_TITLE_MAX_LENGTH 
+                                ? s.title.substring(0, CALENDAR_EVENT_TITLE_MAX_LENGTH) + '...'
+                                : s.title}
                             </div>
                           ))}
                           {cell.schedules.length > 2 && (

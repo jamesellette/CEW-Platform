@@ -10,11 +10,12 @@ import UserManagement from './components/UserManagement';
 import RecordingsList from './components/RecordingsList';
 import ProgressDashboard from './components/ProgressDashboard';
 import ScheduleManager from './components/ScheduleManager';
+import MultiUserSessions from './components/MultiUserSessions';
 import { authApi } from './api';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress', 'schedule'
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress', 'schedule', 'sessions'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -127,6 +128,12 @@ export default function App() {
             📅 Schedule
           </button>
           <button
+            onClick={() => setView('sessions')}
+            style={view === 'sessions' ? navButtonActiveStyle : navButtonStyle}
+          >
+            👥 Sessions
+          </button>
+          <button
             onClick={() => setView('progress')}
             style={view === 'progress' ? navButtonActiveStyle : navButtonStyle}
           >
@@ -198,6 +205,9 @@ export default function App() {
         )}
         {view === 'schedule' && (
           <ScheduleManager user={user} />
+        )}
+        {view === 'sessions' && (
+          <MultiUserSessions user={user} />
         )}
         {view === 'progress' && (
           <ProgressDashboard user={user} />
