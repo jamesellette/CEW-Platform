@@ -776,9 +776,11 @@ class RFEWSimulator:
                         -(center_offset ** 2) / (2 * sigma ** 2)
                     )
                     # Convert to linear, add, convert back
+                    # Add epsilon to prevent log10(0)
                     linear_noise = 10 ** (data_points[i] / 10)
                     linear_signal = 10 ** (signal_contribution / 10)
-                    combined = 10 * math.log10(linear_noise + linear_signal)
+                    combined_linear = linear_noise + linear_signal
+                    combined = 10 * math.log10(max(combined_linear, 1e-20))
                     data_points[i] = combined
         
         # Add jamming effects
@@ -799,7 +801,8 @@ class RFEWSimulator:
                     jam_power = effect.power_dbm - random.uniform(0, 10)
                     linear_current = 10 ** (data_points[i] / 10)
                     linear_jam = 10 ** (jam_power / 10)
-                    data_points[i] = 10 * math.log10(linear_current + linear_jam)
+                    combined_linear = linear_current + linear_jam
+                    data_points[i] = 10 * math.log10(max(combined_linear, 1e-20))
         
         return data_points, detected_signals
     
