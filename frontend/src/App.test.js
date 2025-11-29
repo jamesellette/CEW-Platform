@@ -68,6 +68,13 @@ jest.mock('./api', () => {
       getMySessions: jest.fn().mockResolvedValue({ data: { sessions: [] } }),
       getSession: jest.fn().mockResolvedValue({ data: {} }),
     },
+    marketplaceApi: {
+      listTemplates: jest.fn().mockResolvedValue({ data: { templates: [] } }),
+      getPopular: jest.fn().mockResolvedValue({ data: { templates: [] } }),
+      getRecent: jest.fn().mockResolvedValue({ data: { templates: [] } }),
+      getMyTemplates: jest.fn().mockResolvedValue({ data: { templates: [] } }),
+      getCategories: jest.fn().mockResolvedValue({ data: { categories: [] } }),
+    },
     authApi: {
       getUser: jest.fn(),
       getToken: jest.fn(),
@@ -231,6 +238,24 @@ describe('App - Authenticated', () => {
     // Verify the multi-user sessions is displayed
     await waitFor(() => {
       expect(screen.getByText(/Multi-User Sessions/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders marketplace tab for all users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/🛒 Marketplace/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to marketplace view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/🛒 Marketplace/i));
+    });
+    // Verify the marketplace is displayed
+    await waitFor(() => {
+      expect(screen.getByText(/Scenario Marketplace/i)).toBeInTheDocument();
     });
   });
 });

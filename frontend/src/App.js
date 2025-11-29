@@ -11,11 +11,12 @@ import RecordingsList from './components/RecordingsList';
 import ProgressDashboard from './components/ProgressDashboard';
 import ScheduleManager from './components/ScheduleManager';
 import MultiUserSessions from './components/MultiUserSessions';
+import Marketplace from './components/Marketplace';
 import { authApi } from './api';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress', 'schedule', 'sessions'
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress', 'schedule', 'sessions', 'marketplace'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -134,6 +135,12 @@ export default function App() {
             👥 Sessions
           </button>
           <button
+            onClick={() => setView('marketplace')}
+            style={view === 'marketplace' ? navButtonActiveStyle : navButtonStyle}
+          >
+            🛒 Marketplace
+          </button>
+          <button
             onClick={() => setView('progress')}
             style={view === 'progress' ? navButtonActiveStyle : navButtonStyle}
           >
@@ -208,6 +215,9 @@ export default function App() {
         )}
         {view === 'sessions' && (
           <MultiUserSessions user={user} />
+        )}
+        {view === 'marketplace' && (
+          <Marketplace user={user} />
         )}
         {view === 'progress' && (
           <ProgressDashboard user={user} />
