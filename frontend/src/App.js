@@ -12,11 +12,16 @@ import ProgressDashboard from './components/ProgressDashboard';
 import ScheduleManager from './components/ScheduleManager';
 import MultiUserSessions from './components/MultiUserSessions';
 import Marketplace from './components/Marketplace';
+import TopologyEditor from './components/TopologyEditor';
+import RFSimulation from './components/RFSimulation';
+import BackupManager from './components/BackupManager';
+import RateLimitsDashboard from './components/RateLimitsDashboard';
+import IntegrationsManager from './components/IntegrationsManager';
 import { authApi } from './api';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress', 'schedule', 'sessions', 'marketplace'
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress', 'schedule', 'sessions', 'marketplace', 'topology-editor', 'rf-simulation', 'backups', 'rate-limits', 'integrations'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -122,6 +127,14 @@ export default function App() {
           >
             📝 Scenarios
           </button>
+          {isInstructorOrAdmin && (
+            <button
+              onClick={() => setView('topology-editor')}
+              style={view === 'topology-editor' ? navButtonActiveStyle : navButtonStyle}
+            >
+              🗺️ Topology
+            </button>
+          )}
           <button
             onClick={() => setView('schedule')}
             style={view === 'schedule' ? navButtonActiveStyle : navButtonStyle}
@@ -148,6 +161,14 @@ export default function App() {
           </button>
           {isInstructorOrAdmin && (
             <button
+              onClick={() => setView('rf-simulation')}
+              style={view === 'rf-simulation' ? navButtonActiveStyle : navButtonStyle}
+            >
+              📡 RF/EW
+            </button>
+          )}
+          {isInstructorOrAdmin && (
+            <button
               onClick={() => setView('recordings')}
               style={view === 'recordings' ? navButtonActiveStyle : navButtonStyle}
             >
@@ -160,6 +181,30 @@ export default function App() {
               style={view === 'audit' ? navButtonActiveStyle : navButtonStyle}
             >
               📋 Audit Logs
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setView('backups')}
+              style={view === 'backups' ? navButtonActiveStyle : navButtonStyle}
+            >
+              💾 Backups
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setView('rate-limits')}
+              style={view === 'rate-limits' ? navButtonActiveStyle : navButtonStyle}
+            >
+              🚦 Rate Limits
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setView('integrations')}
+              style={view === 'integrations' ? navButtonActiveStyle : navButtonStyle}
+            >
+              🔌 Integrations
             </button>
           )}
           {isAdmin && (
@@ -222,11 +267,26 @@ export default function App() {
         {view === 'progress' && (
           <ProgressDashboard user={user} />
         )}
+        {view === 'topology-editor' && isInstructorOrAdmin && (
+          <TopologyEditor user={user} />
+        )}
+        {view === 'rf-simulation' && isInstructorOrAdmin && (
+          <RFSimulation user={user} />
+        )}
         {view === 'recordings' && isInstructorOrAdmin && (
           <RecordingsList user={user} />
         )}
         {view === 'audit' && isInstructorOrAdmin && (
           <AuditLogs />
+        )}
+        {view === 'backups' && isAdmin && (
+          <BackupManager user={user} />
+        )}
+        {view === 'rate-limits' && isAdmin && (
+          <RateLimitsDashboard user={user} />
+        )}
+        {view === 'integrations' && isAdmin && (
+          <IntegrationsManager user={user} />
         )}
         {view === 'users' && isAdmin && (
           <UserManagement currentUser={user} />
@@ -259,6 +319,7 @@ const navStyle = {
   marginTop: '16px',
   display: 'flex',
   gap: '8px',
+  flexWrap: 'wrap',
 };
 
 const navButtonStyle = {

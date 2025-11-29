@@ -37,6 +37,9 @@ jest.mock('./api', () => {
     topologyApi: {
       list: jest.fn().mockResolvedValue({ data: [] }),
       get: jest.fn(),
+      listTopologies: jest.fn().mockResolvedValue({ data: [] }),
+      getNodeTypes: jest.fn().mockResolvedValue({ data: [] }),
+      getConnectionTypes: jest.fn().mockResolvedValue({ data: [] }),
     },
     labApi: {
       list: jest.fn().mockResolvedValue({ data: [] }),
@@ -74,6 +77,35 @@ jest.mock('./api', () => {
       getRecent: jest.fn().mockResolvedValue({ data: { templates: [] } }),
       getMyTemplates: jest.fn().mockResolvedValue({ data: { templates: [] } }),
       getCategories: jest.fn().mockResolvedValue({ data: { categories: [] } }),
+    },
+    rfSimulationApi: {
+      listSimulations: jest.fn().mockResolvedValue({ data: [] }),
+      getFrequencyBands: jest.fn().mockResolvedValue({ data: [] }),
+      getPredefinedThreats: jest.fn().mockResolvedValue({ data: [] }),
+      getStatistics: jest.fn().mockResolvedValue({ data: null }),
+    },
+    backupApi: {
+      listBackups: jest.fn().mockResolvedValue({ data: [] }),
+      listSchedules: jest.fn().mockResolvedValue({ data: [] }),
+      listSnapshots: jest.fn().mockResolvedValue({ data: [] }),
+      getStatistics: jest.fn().mockResolvedValue({ data: {} }),
+    },
+    rateLimitApi: {
+      getStatus: jest.fn().mockResolvedValue({ data: { enabled: true } }),
+      getStatistics: jest.fn().mockResolvedValue({ data: {} }),
+      getViolations: jest.fn().mockResolvedValue({ data: [] }),
+      getTopUsers: jest.fn().mockResolvedValue({ data: [] }),
+      getTopEndpoints: jest.fn().mockResolvedValue({ data: [] }),
+      getMyStatus: jest.fn().mockResolvedValue({ data: { tier: 'admin' } }),
+    },
+    integrationsApi: {
+      listIntegrations: jest.fn().mockResolvedValue({ data: [] }),
+      getStatistics: jest.fn().mockResolvedValue({ data: {} }),
+      getTactics: jest.fn().mockResolvedValue({ data: [] }),
+      listTechniques: jest.fn().mockResolvedValue({ data: [] }),
+      listMappings: jest.fn().mockResolvedValue({ data: [] }),
+      listForwardingRules: jest.fn().mockResolvedValue({ data: [] }),
+      listEmulationConfigs: jest.fn().mockResolvedValue({ data: [] }),
     },
     authApi: {
       getUser: jest.fn(),
@@ -256,6 +288,94 @@ describe('App - Authenticated', () => {
     // Verify the marketplace is displayed
     await waitFor(() => {
       expect(screen.getByText(/Scenario Marketplace/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders topology editor tab for admin users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/🗺️ Topology/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can click topology editor tab for navigation', async () => {
+    render(<App />);
+    const topologyButton = await screen.findByText(/🗺️ Topology/i);
+    fireEvent.click(topologyButton);
+    // Verify the button is active after clicking
+    await waitFor(() => {
+      expect(topologyButton).toHaveStyle({ backgroundColor: 'rgb(0, 123, 255)' });
+    });
+  });
+
+  test('renders RF/EW simulation tab for admin users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/📡 RF\/EW/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can click RF simulation tab for navigation', async () => {
+    render(<App />);
+    const rfButton = await screen.findByText(/📡 RF\/EW/i);
+    fireEvent.click(rfButton);
+    // Verify the button is active after clicking
+    await waitFor(() => {
+      expect(rfButton).toHaveStyle({ backgroundColor: 'rgb(0, 123, 255)' });
+    });
+  });
+
+  test('renders backups tab for admin users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/💾 Backups/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to backups view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/💾 Backups/i));
+    });
+    // Verify the backup manager is displayed
+    await waitFor(() => {
+      expect(screen.getByText(/Backup & Disaster Recovery/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders rate limits tab for admin users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/🚦 Rate Limits/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to rate limits view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/🚦 Rate Limits/i));
+    });
+    // Verify the rate limits dashboard is displayed
+    await waitFor(() => {
+      expect(screen.getByText(/API Rate Limiting/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders integrations tab for admin users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/🔌 Integrations/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to integrations view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/🔌 Integrations/i));
+    });
+    // Verify the integrations manager is displayed
+    await waitFor(() => {
+      expect(screen.getByText(/External Integrations/i)).toBeInTheDocument();
     });
   });
 });
