@@ -44,6 +44,11 @@ jest.mock('./api', () => {
       get: jest.fn(),
       stop: jest.fn(),
     },
+    recordingApi: {
+      list: jest.fn().mockResolvedValue({ data: { recordings: [] } }),
+      get: jest.fn(),
+      getPlayback: jest.fn().mockResolvedValue({ data: { session: {}, events: [] } }),
+    },
     authApi: {
       getUser: jest.fn(),
       getToken: jest.fn(),
@@ -134,6 +139,25 @@ describe('App - Authenticated', () => {
     render(<App />);
     await waitFor(() => {
       expect(screen.getByText(/Training use only/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders recordings tab for admin users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/📼 Recordings/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to recordings view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/📼 Recordings/i));
+    });
+    // Verify the recordings tab is active (has the blue active style)
+    await waitFor(() => {
+      const recordingsButton = screen.getByText(/📼 Recordings/i);
+      expect(recordingsButton).toHaveStyle({ backgroundColor: 'rgb(0, 123, 255)' });
     });
   });
 });

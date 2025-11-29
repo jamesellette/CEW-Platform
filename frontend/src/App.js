@@ -7,11 +7,12 @@ import InstructorControls from './components/InstructorControls';
 import Dashboard from './components/Dashboard';
 import AuditLogs from './components/AuditLogs';
 import UserManagement from './components/UserManagement';
+import RecordingsList from './components/RecordingsList';
 import { authApi } from './api';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users'
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -119,6 +120,14 @@ export default function App() {
           </button>
           {isInstructorOrAdmin && (
             <button
+              onClick={() => setView('recordings')}
+              style={view === 'recordings' ? navButtonActiveStyle : navButtonStyle}
+            >
+              📼 Recordings
+            </button>
+          )}
+          {isInstructorOrAdmin && (
+            <button
               onClick={() => setView('audit')}
               style={view === 'audit' ? navButtonActiveStyle : navButtonStyle}
             >
@@ -172,6 +181,9 @@ export default function App() {
             onSelect={handleTemplateSelect}
             onCancel={handleCancel}
           />
+        )}
+        {view === 'recordings' && isInstructorOrAdmin && (
+          <RecordingsList user={user} />
         )}
         {view === 'audit' && isInstructorOrAdmin && (
           <AuditLogs />
