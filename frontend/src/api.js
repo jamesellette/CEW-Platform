@@ -494,4 +494,85 @@ export const rateLimitApi = {
   getMyStatus: () => api.get('/rate-limits/me'),
 };
 
+// Backup & Disaster Recovery API - for backup management
+export const backupApi = {
+  // Backups
+  createBackup: (backupType, description = '', tags = [], retentionDays = 30) =>
+    api.post('/backups', {
+      backup_type: backupType,
+      description,
+      tags,
+      retention_days: retentionDays,
+    }),
+  
+  listBackups: (backupType = null, status = null, tags = null, limit = 100) =>
+    api.get('/backups', { params: { backup_type: backupType, status, tags, limit } }),
+  
+  getBackup: (backupId) => api.get(`/backups/${backupId}`),
+  
+  deleteBackup: (backupId) => api.delete(`/backups/${backupId}`),
+  
+  verifyBackup: (backupId) => api.post(`/backups/${backupId}/verify`),
+  
+  restoreBackup: (backupId) => api.post(`/backups/${backupId}/restore`),
+  
+  exportBackup: (backupId, format = 'json') =>
+    api.get(`/backups/${backupId}/export`, { params: { format } }),
+  
+  importBackup: (content, format = 'json') =>
+    api.post('/backups/import', { content, format }),
+  
+  cleanupExpired: () => api.post('/backups/cleanup'),
+  
+  getStatistics: () => api.get('/backups/statistics'),
+  
+  // Lab Snapshots
+  createSnapshot: (labId, scenarioId, status, containers = [], networks = [], environment = {}, notes = '') =>
+    api.post('/snapshots', {
+      lab_id: labId,
+      scenario_id: scenarioId,
+      status,
+      containers,
+      networks,
+      environment,
+      notes,
+    }),
+  
+  listSnapshots: (labId = null, scenarioId = null, limit = 50) =>
+    api.get('/snapshots', { params: { lab_id: labId, scenario_id: scenarioId, limit } }),
+  
+  getSnapshot: (snapshotId) => api.get(`/snapshots/${snapshotId}`),
+  
+  deleteSnapshot: (snapshotId) => api.delete(`/snapshots/${snapshotId}`),
+  
+  restoreSnapshot: (snapshotId) => api.post(`/snapshots/${snapshotId}/restore`),
+  
+  // Restore Points
+  listRestorePoints: (backupId = null, status = null, limit = 50) =>
+    api.get('/restore-points', { params: { backup_id: backupId, status, limit } }),
+  
+  getRestorePoint: (restoreId) => api.get(`/restore-points/${restoreId}`),
+  
+  // Backup Schedules
+  createSchedule: (backupType, frequency, timeOfDay, dayOfWeek = null, dayOfMonth = null, retentionDays = 30, maxBackups = 10) =>
+    api.post('/backup-schedules', {
+      backup_type: backupType,
+      frequency,
+      time_of_day: timeOfDay,
+      day_of_week: dayOfWeek,
+      day_of_month: dayOfMonth,
+      retention_days: retentionDays,
+      max_backups: maxBackups,
+    }),
+  
+  listSchedules: (enabledOnly = false) =>
+    api.get('/backup-schedules', { params: { enabled_only: enabledOnly } }),
+  
+  getSchedule: (scheduleId) => api.get(`/backup-schedules/${scheduleId}`),
+  
+  updateSchedule: (scheduleId, data) => api.put(`/backup-schedules/${scheduleId}`, data),
+  
+  deleteSchedule: (scheduleId) => api.delete(`/backup-schedules/${scheduleId}`),
+};
+
 export default api;

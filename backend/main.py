@@ -40,6 +40,9 @@ from rate_limiting import (
     rate_limiter, RateLimitTier, RateLimitRule, ThrottleAction,
     EndpointRateLimitConfig
 )
+from backup_recovery import (
+    backup_manager, BackupType, BackupStatus, RestoreStatus
+)
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -3111,3 +3114,506 @@ async def get_my_rate_limit_status(
         "limits": tier_rules.get(user_tier, {}),
         "current_state": state
     }
+
+
+# ============ Backup & Disaster Recovery Endpoints ============
+
+
+class CreateBackupRequest(BaseModel):
+    """Request to create a backup."""
+    backup_type: str
+    description: str = ""
+    tags: List[str] = []
+    retention_days: int = 30
+
+
+class CreateLabSnapshotRequest(BaseModel):
+    """Request to create a lab snapshot."""
+    lab_id: str
+    scenario_id: str
+    status: str
+    containers: List[dict] = []
+    networks: List[dict] = []
+    environment: dict = {}
+    notes: str = ""
+
+
+class CreateBackupScheduleRequest(BaseModel):
+    """Request to create a backup schedule."""
+    backup_type: str
+    frequency: str  # daily, weekly, monthly
+    time_of_day: str  # HH:MM
+    day_of_week: Optional[int] = None
+    day_of_month: Optional[int] = None
+    retention_days: int = 30
+    max_backups: int = 10
+
+
+class UpdateScheduleRequest(BaseModel):
+    """Request to update a backup schedule."""
+    enabled: Optional[bool] = None
+    time_of_day: Optional[str] = None
+    retention_days: Optional[int] = None
+    max_backups: Optional[int] = None
+
+
+class ImportBackupRequest(BaseModel):
+    """Request to import a backup."""
+    content: str
+    format: str = "json"
+
+
+@app.post("/backups")
+async def create_backup(
+    request: CreateBackupRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Create a new backup."""
+    try:
+        backup_type = BackupType(request.backup_type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid backup type: {request.backup_type}")
+    
+    # Collect data based on backup type
+    data = {}
+    if backup_type == BackupType.SCENARIOS:
+        data = {"scenarios": {k: v.model_dump() for k, v in db.items()}}
+    elif backup_type == BackupType.CONFIG:
+        data = {"config": {"safety": {"air_gap_enforced": True}}}
+    elif backup_type == BackupType.FULL:
+        data = {
+            "scenarios": {k: v.model_dump() for k, v in db.items()},
+            "config": {"safety": {"air_gap_enforced": True}},
+            "active_scenarios": dict(active_scenarios)
+        }
+    
+    metadata = backup_manager.create_backup(
+        backup_type=backup_type,
+        created_by=current_user.username,
+        description=request.description,
+        data=data,
+        tags=request.tags,
+        retention_days=request.retention_days
+    )
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="backup",
+        resource_id=metadata.backup_id,
+        details=f"Created {backup_type.value} backup"
+    )
+    
+    return metadata.to_dict()
+
+
+@app.get("/backups")
+async def list_backups(
+    backup_type: Optional[str] = None,
+    status: Optional[str] = None,
+    tags: Optional[str] = None,
+    limit: int = 100,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> List[dict]:
+    """List backups."""
+    btype = BackupType(backup_type) if backup_type else None
+    bstatus = BackupStatus(status) if status else None
+    tag_list = tags.split(",") if tags else None
+    
+    backups = backup_manager.list_backups(
+        backup_type=btype,
+        status=bstatus,
+        tags=tag_list,
+        limit=limit
+    )
+    
+    return [b.to_dict() for b in backups]
+
+
+@app.get("/backups/statistics")
+async def get_backup_statistics(
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Get backup statistics."""
+    return backup_manager.get_statistics()
+
+
+@app.get("/backups/{backup_id}")
+async def get_backup(
+    backup_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Get a backup by ID."""
+    backup = backup_manager.get_backup(backup_id)
+    if not backup:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    return backup.to_dict()
+
+
+@app.delete("/backups/{backup_id}")
+async def delete_backup(
+    backup_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Delete a backup."""
+    if not backup_manager.delete_backup(backup_id):
+        raise HTTPException(status_code=404, detail="Backup not found")
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="backup",
+        resource_id=backup_id,
+        details="Deleted backup"
+    )
+    
+    return {"message": "Backup deleted"}
+
+
+@app.post("/backups/{backup_id}/verify")
+async def verify_backup(
+    backup_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Verify backup integrity."""
+    result = backup_manager.verify_backup(backup_id)
+    return result
+
+
+@app.post("/backups/{backup_id}/restore")
+async def restore_backup(
+    backup_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Restore from a backup."""
+    restore_point = backup_manager.restore_backup(
+        backup_id=backup_id,
+        created_by=current_user.username
+    )
+    
+    if restore_point.status == RestoreStatus.FAILED:
+        raise HTTPException(
+            status_code=400,
+            detail=restore_point.error_message or "Restore failed"
+        )
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="backup",
+        resource_id=backup_id,
+        details=f"Restored from backup (restore_id: {restore_point.restore_id})"
+    )
+    
+    return restore_point.to_dict()
+
+
+@app.get("/backups/{backup_id}/export")
+async def export_backup(
+    backup_id: str,
+    format: str = "json",
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> Response:
+    """Export a backup."""
+    content = backup_manager.export_backup(backup_id, format)
+    if not content:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    
+    media_type = "application/json" if format == "json" else "application/x-yaml"
+    
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="backup_{backup_id}.{format}"'}
+    )
+
+
+@app.post("/backups/import")
+async def import_backup(
+    request: ImportBackupRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Import a backup."""
+    try:
+        metadata = backup_manager.import_backup(
+            content=request.content,
+            format=request.format,
+            created_by=current_user.username
+        )
+        
+        log_action(
+            action=AuditAction.VIEW_SCENARIO,
+            username=current_user.username,
+            resource_type="backup",
+            resource_id=metadata.backup_id,
+            details="Imported backup"
+        )
+        
+        return metadata.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/backups/cleanup")
+async def cleanup_expired_backups(
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Remove expired backups."""
+    count = backup_manager.cleanup_expired_backups()
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="backup",
+        details=f"Cleaned up {count} expired backups"
+    )
+    
+    return {"removed_count": count}
+
+
+# ============ Lab Snapshots ============
+
+
+@app.post("/snapshots")
+async def create_lab_snapshot(
+    request: CreateLabSnapshotRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Create a lab state snapshot."""
+    snapshot = backup_manager.create_lab_snapshot(
+        lab_id=request.lab_id,
+        scenario_id=request.scenario_id,
+        created_by=current_user.username,
+        status=request.status,
+        containers=request.containers,
+        networks=request.networks,
+        environment=request.environment,
+        notes=request.notes
+    )
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="snapshot",
+        resource_id=snapshot.snapshot_id,
+        details=f"Created lab snapshot for lab {request.lab_id}"
+    )
+    
+    return snapshot.to_dict()
+
+
+@app.get("/snapshots")
+async def list_lab_snapshots(
+    lab_id: Optional[str] = None,
+    scenario_id: Optional[str] = None,
+    limit: int = 50,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> List[dict]:
+    """List lab snapshots."""
+    snapshots = backup_manager.list_lab_snapshots(
+        lab_id=lab_id,
+        scenario_id=scenario_id,
+        limit=limit
+    )
+    return [s.to_dict() for s in snapshots]
+
+
+@app.get("/snapshots/{snapshot_id}")
+async def get_lab_snapshot(
+    snapshot_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Get a lab snapshot by ID."""
+    snapshot = backup_manager.get_lab_snapshot(snapshot_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    return snapshot.to_dict()
+
+
+@app.delete("/snapshots/{snapshot_id}")
+async def delete_lab_snapshot(
+    snapshot_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Delete a lab snapshot."""
+    if not backup_manager.delete_lab_snapshot(snapshot_id):
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="snapshot",
+        resource_id=snapshot_id,
+        details="Deleted lab snapshot"
+    )
+    
+    return {"message": "Snapshot deleted"}
+
+
+@app.post("/snapshots/{snapshot_id}/restore")
+async def restore_lab_snapshot(
+    snapshot_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.INSTRUCTOR]))
+) -> dict:
+    """Restore from a lab snapshot."""
+    result = backup_manager.restore_lab_snapshot(
+        snapshot_id=snapshot_id,
+        created_by=current_user.username
+    )
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="snapshot",
+        resource_id=snapshot_id,
+        details="Restored from lab snapshot"
+    )
+    
+    return result
+
+
+# ============ Restore Points ============
+
+
+@app.get("/restore-points")
+async def list_restore_points(
+    backup_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> List[dict]:
+    """List restore points."""
+    rstatus = RestoreStatus(status) if status else None
+    
+    points = backup_manager.list_restore_points(
+        backup_id=backup_id,
+        status=rstatus,
+        limit=limit
+    )
+    
+    return [p.to_dict() for p in points]
+
+
+@app.get("/restore-points/{restore_id}")
+async def get_restore_point(
+    restore_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Get a restore point by ID."""
+    point = backup_manager.get_restore_point(restore_id)
+    if not point:
+        raise HTTPException(status_code=404, detail="Restore point not found")
+    return point.to_dict()
+
+
+# ============ Backup Schedules ============
+
+
+@app.post("/backup-schedules")
+async def create_backup_schedule(
+    request: CreateBackupScheduleRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Create an automated backup schedule."""
+    try:
+        backup_type = BackupType(request.backup_type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid backup type: {request.backup_type}")
+    
+    if request.frequency not in ["daily", "weekly", "monthly"]:
+        raise HTTPException(status_code=400, detail="Invalid frequency")
+    
+    schedule = backup_manager.create_schedule(
+        backup_type=backup_type,
+        created_by=current_user.username,
+        frequency=request.frequency,
+        time_of_day=request.time_of_day,
+        day_of_week=request.day_of_week,
+        day_of_month=request.day_of_month,
+        retention_days=request.retention_days,
+        max_backups=request.max_backups
+    )
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="backup_schedule",
+        resource_id=schedule.schedule_id,
+        details=f"Created {request.frequency} backup schedule"
+    )
+    
+    return schedule.to_dict()
+
+
+@app.get("/backup-schedules")
+async def list_backup_schedules(
+    enabled_only: bool = False,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> List[dict]:
+    """List backup schedules."""
+    schedules = backup_manager.list_schedules(enabled_only=enabled_only)
+    return [s.to_dict() for s in schedules]
+
+
+@app.get("/backup-schedules/{schedule_id}")
+async def get_backup_schedule(
+    schedule_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Get a backup schedule by ID."""
+    schedule = backup_manager.get_schedule(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return schedule.to_dict()
+
+
+@app.put("/backup-schedules/{schedule_id}")
+async def update_backup_schedule(
+    schedule_id: str,
+    request: UpdateScheduleRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Update a backup schedule."""
+    schedule = backup_manager.update_schedule(
+        schedule_id=schedule_id,
+        enabled=request.enabled,
+        time_of_day=request.time_of_day,
+        retention_days=request.retention_days,
+        max_backups=request.max_backups
+    )
+    
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="backup_schedule",
+        resource_id=schedule_id,
+        details="Updated backup schedule"
+    )
+    
+    return schedule.to_dict()
+
+
+@app.delete("/backup-schedules/{schedule_id}")
+async def delete_backup_schedule(
+    schedule_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Delete a backup schedule."""
+    if not backup_manager.delete_schedule(schedule_id):
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="backup_schedule",
+        resource_id=schedule_id,
+        details="Deleted backup schedule"
+    )
+    
+    return {"message": "Schedule deleted"}
