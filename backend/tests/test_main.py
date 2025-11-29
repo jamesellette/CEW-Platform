@@ -434,3 +434,145 @@ def test_list_active_scenarios():
     assert r.status_code == 200
     assert len(r.json()) == 1
     assert r.json()[0]["scenario_name"] == "Active List Test"
+
+
+# ============ Lab Health and Resource Monitoring Tests ============
+
+def test_lab_health_endpoint():
+    db.clear()
+    active_scenarios.clear()
+    lab_to_scenario.clear()
+    orchestrator._labs.clear()
+
+    # Create and activate a scenario
+    scenario_data = {
+        "name": "Health Test",
+        "topology": {
+            "nodes": [{"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}],
+            "networks": []
+        }
+    }
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    token = get_admin_token()
+    activate_response = client.post(
+        f"/scenarios/{scenario_id}/activate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    lab_id = activate_response.json()["lab_id"]
+
+    # Get health status
+    r = client.get(
+        f"/labs/{lab_id}/health",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["lab_id"] == lab_id
+    assert "containers" in data
+    assert "node1" in data["containers"]
+
+
+def test_lab_health_not_found():
+    token = get_admin_token()
+    r = client.get(
+        "/labs/nonexistent-lab-id/health",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 404
+
+
+def test_lab_resources_endpoint():
+    db.clear()
+    active_scenarios.clear()
+    lab_to_scenario.clear()
+    orchestrator._labs.clear()
+
+    # Create and activate a scenario
+    scenario_data = {
+        "name": "Resources Test",
+        "topology": {
+            "nodes": [{"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}],
+            "networks": []
+        }
+    }
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    token = get_admin_token()
+    activate_response = client.post(
+        f"/scenarios/{scenario_id}/activate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    lab_id = activate_response.json()["lab_id"]
+
+    # Get resource usage
+    r = client.get(
+        f"/labs/{lab_id}/resources",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["lab_id"] == lab_id
+    assert "containers" in data
+    assert "node1" in data["containers"]
+
+
+def test_lab_resources_not_found():
+    token = get_admin_token()
+    r = client.get(
+        "/labs/nonexistent-lab-id/resources",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 404
+
+
+def test_lab_recover_endpoint():
+    db.clear()
+    active_scenarios.clear()
+    lab_to_scenario.clear()
+    orchestrator._labs.clear()
+
+    # Create and activate a scenario
+    scenario_data = {
+        "name": "Recovery Test",
+        "topology": {
+            "nodes": [{"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}],
+            "networks": []
+        }
+    }
+    create_response = client.post("/scenarios", json=scenario_data)
+    scenario_id = create_response.json()["id"]
+
+    token = get_admin_token()
+    activate_response = client.post(
+        f"/scenarios/{scenario_id}/activate",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    lab_id = activate_response.json()["lab_id"]
+
+    # Try auto-recovery
+    r = client.post(
+        f"/labs/{lab_id}/recover",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["lab_id"] == lab_id
+    assert "restarted_containers" in data
+    assert "count" in data
+
+
+def test_system_status_includes_docker_info():
+    db.clear()
+    token = get_admin_token()
+    r = client.get(
+        "/system/status",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert "docker" in data
+    assert "available" in data["docker"]
+    assert "mode" in data["docker"]

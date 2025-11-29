@@ -26,6 +26,7 @@ class AuditAction:
     ACTIVATE_SCENARIO = "activate_scenario"
     DEACTIVATE_SCENARIO = "deactivate_scenario"
     KILL_SWITCH = "kill_switch"
+    LAB_RECOVERY = "lab_recovery"
 
 
 class AuditLog(BaseModel):

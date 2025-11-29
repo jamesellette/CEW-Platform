@@ -1,6 +1,9 @@
 """Tests for the orchestrator module."""
 import pytest
-from orchestrator import orchestrator, LabStatus, LabEnvironment
+from orchestrator import (
+    orchestrator, LabStatus,
+    ContainerHealth, ResourceLimits
+)
 
 
 @pytest.fixture(autouse=True)
@@ -293,3 +296,213 @@ async def test_duplicate_scenario_activation_blocked():
             constraints={},
             activated_by="user2"
         )
+
+
+# ============ New Docker Integration Tests ============
+
+@pytest.mark.asyncio
+async def test_docker_mode_attribute():
+    """Test that lab records Docker mode correctly."""
+    lab = await orchestrator.create_lab(
+        scenario_id="docker-mode-test",
+        scenario_name="Docker Mode Test",
+        topology={"nodes": [], "networks": []},
+        constraints={},
+        activated_by="testuser"
+    )
+
+    # In test mode, docker_mode should be False (simulation)
+    assert lab.docker_mode is False
+
+
+@pytest.mark.asyncio
+async def test_container_health_simulation():
+    """Test container health status in simulation mode."""
+    lab = await orchestrator.create_lab(
+        scenario_id="health-test",
+        scenario_name="Health Test",
+        topology={
+            "nodes": [
+                {"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}
+            ],
+            "networks": []
+        },
+        constraints={},
+        activated_by="testuser"
+    )
+
+    health = await orchestrator.get_container_health(lab.lab_id)
+    assert "node1" in health
+    assert health["node1"]["health"] == "healthy"
+    assert health["node1"]["status"] == "simulated"
+
+
+@pytest.mark.asyncio
+async def test_container_health_not_found():
+    """Test container health with invalid lab ID."""
+    with pytest.raises(ValueError, match="not found"):
+        await orchestrator.get_container_health("nonexistent-lab")
+
+
+@pytest.mark.asyncio
+async def test_resource_usage_simulation():
+    """Test resource usage in simulation mode."""
+    lab = await orchestrator.create_lab(
+        scenario_id="resource-test",
+        scenario_name="Resource Test",
+        topology={
+            "nodes": [
+                {"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}
+            ],
+            "networks": []
+        },
+        constraints={},
+        activated_by="testuser"
+    )
+
+    usage = orchestrator.get_resource_usage(lab.lab_id)
+    assert "node1" in usage
+    assert usage["node1"]["mode"] == "simulated"
+    assert "cpu_percent" in usage["node1"]
+    assert "memory_usage_mb" in usage["node1"]
+
+
+@pytest.mark.asyncio
+async def test_resource_usage_not_found():
+    """Test resource usage with invalid lab ID."""
+    with pytest.raises(ValueError, match="not found"):
+        orchestrator.get_resource_usage("nonexistent-lab")
+
+
+@pytest.mark.asyncio
+async def test_restart_unhealthy_containers_simulation():
+    """Test auto-recovery in simulation mode."""
+    lab = await orchestrator.create_lab(
+        scenario_id="recovery-test",
+        scenario_name="Recovery Test",
+        topology={
+            "nodes": [
+                {"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}
+            ],
+            "networks": []
+        },
+        constraints={},
+        activated_by="testuser"
+    )
+
+    # In simulation mode, should return empty list
+    restarted = await orchestrator.restart_unhealthy_containers(lab.lab_id)
+    assert restarted == []
+
+
+@pytest.mark.asyncio
+async def test_restart_unhealthy_containers_not_found():
+    """Test auto-recovery with invalid lab ID."""
+    with pytest.raises(ValueError, match="not found"):
+        await orchestrator.restart_unhealthy_containers("nonexistent-lab")
+
+
+@pytest.mark.asyncio
+async def test_restart_unhealthy_containers_not_running():
+    """Test auto-recovery on stopped lab."""
+    lab = await orchestrator.create_lab(
+        scenario_id="stopped-recovery-test",
+        scenario_name="Stopped Recovery Test",
+        topology={"nodes": [], "networks": []},
+        constraints={},
+        activated_by="testuser"
+    )
+    await orchestrator.stop_lab(lab.lab_id)
+
+    with pytest.raises(ValueError, match="not running"):
+        await orchestrator.restart_unhealthy_containers(lab.lab_id)
+
+
+@pytest.mark.asyncio
+async def test_resource_limits_from_constraints():
+    """Test that resource limits are extracted from constraints."""
+    lab = await orchestrator.create_lab(
+        scenario_id="limits-test",
+        scenario_name="Limits Test",
+        topology={
+            "nodes": [
+                {"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}
+            ],
+            "networks": []
+        },
+        constraints={
+            "resources": {
+                "memory_limit": "1g",
+                "cpu_quota": 80000,
+                "cpu_period": 100000
+            }
+        },
+        activated_by="testuser"
+    )
+
+    assert len(lab.containers) == 1
+    container = lab.containers[0]
+    assert container.resource_limits is not None
+    assert container.resource_limits.memory_limit == "1g"
+    assert container.resource_limits.cpu_quota == 80000
+    assert container.resource_limits.cpu_percent == 80.0
+
+
+@pytest.mark.asyncio
+async def test_default_resource_limits():
+    """Test that default resource limits are applied."""
+    lab = await orchestrator.create_lab(
+        scenario_id="default-limits-test",
+        scenario_name="Default Limits Test",
+        topology={
+            "nodes": [
+                {"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}
+            ],
+            "networks": []
+        },
+        constraints={},
+        activated_by="testuser"
+    )
+
+    assert len(lab.containers) == 1
+    container = lab.containers[0]
+    assert container.resource_limits is not None
+    assert container.resource_limits.memory_limit == "512m"
+    assert container.resource_limits.cpu_quota == 50000
+    assert container.resource_limits.cpu_percent == 50.0
+
+
+def test_resource_limits_cpu_percent():
+    """Test ResourceLimits cpu_percent calculation."""
+    limits = ResourceLimits(
+        memory_limit="1g",
+        cpu_quota=25000,
+        cpu_period=100000
+    )
+    assert limits.cpu_percent == 25.0
+
+
+def test_orchestrator_docker_available_property():
+    """Test docker_available property."""
+    # Global orchestrator should have the property accessible
+    assert isinstance(orchestrator.docker_available, bool)
+
+
+@pytest.mark.asyncio
+async def test_container_health_status_enum():
+    """Test that container health status uses proper enum."""
+    lab = await orchestrator.create_lab(
+        scenario_id="health-enum-test",
+        scenario_name="Health Enum Test",
+        topology={
+            "nodes": [
+                {"id": "n1", "hostname": "node1", "image": "ubuntu:22.04"}
+            ],
+            "networks": []
+        },
+        constraints={},
+        activated_by="testuser"
+    )
+
+    container = lab.containers[0]
+    assert container.health == ContainerHealth.STARTING
