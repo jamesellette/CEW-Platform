@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Request, WebSocket
+from fastapi import FastAPI, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
@@ -871,8 +871,6 @@ async def websocket_container_logs(
     Clients should send a token query parameter for authentication.
     Logs are streamed as they become available.
     """
-    from fastapi import WebSocketDisconnect as WSD
-
     # Get token from query params
     token = websocket.query_params.get("token")
     if not token:
@@ -928,7 +926,7 @@ async def websocket_container_logs(
                 "line": log_line
             })
 
-    except WSD:
+    except WebSocketDisconnect:
         pass
     except ValueError as e:
         await websocket.send_json({

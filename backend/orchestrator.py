@@ -913,7 +913,9 @@ class Orchestrator:
                 log_line = log_chunk.decode('utf-8', errors='replace').strip()
                 if log_line:
                     yield log_line
-                # Yield control periodically for async operation
+                # Yield control to the event loop for cooperative multitasking.
+                # This allows other async tasks (e.g., WebSocket heartbeats) to run
+                # while streaming logs continuously.
                 await asyncio.sleep(0)
 
         except docker.errors.NotFound:

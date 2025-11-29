@@ -110,6 +110,11 @@ export default function ContainerLogs({ labId, hostname, onClose }) {
     setLogs([]);
   };
 
+  // Format timestamp for filename (removes colons which are invalid in some filesystems)
+  const formatTimestampForFilename = (date) => {
+    return date.toISOString().split('.')[0].replace(/[T:]/g, '-');
+  };
+
   // Download logs as file
   const downloadLogs = () => {
     const content = logs.join('\n');
@@ -117,7 +122,8 @@ export default function ContainerLogs({ labId, hostname, onClose }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${hostname}-logs-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+    const timestamp = formatTimestampForFilename(new Date());
+    a.download = `${hostname}-logs-${timestamp}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
