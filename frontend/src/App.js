@@ -9,11 +9,12 @@ import AuditLogs from './components/AuditLogs';
 import UserManagement from './components/UserManagement';
 import RecordingsList from './components/RecordingsList';
 import ProgressDashboard from './components/ProgressDashboard';
+import ScheduleManager from './components/ScheduleManager';
 import { authApi } from './api';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress'
+  const [view, setView] = useState('dashboard'); // 'dashboard', 'list', 'editor', 'topologies', 'audit', 'users', 'recordings', 'progress', 'schedule'
   const [editingScenario, setEditingScenario] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -120,6 +121,12 @@ export default function App() {
             📝 Scenarios
           </button>
           <button
+            onClick={() => setView('schedule')}
+            style={view === 'schedule' ? navButtonActiveStyle : navButtonStyle}
+          >
+            📅 Schedule
+          </button>
+          <button
             onClick={() => setView('progress')}
             style={view === 'progress' ? navButtonActiveStyle : navButtonStyle}
           >
@@ -188,6 +195,9 @@ export default function App() {
             onSelect={handleTemplateSelect}
             onCancel={handleCancel}
           />
+        )}
+        {view === 'schedule' && (
+          <ScheduleManager user={user} />
         )}
         {view === 'progress' && (
           <ProgressDashboard user={user} />

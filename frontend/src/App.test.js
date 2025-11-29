@@ -57,6 +57,12 @@ jest.mock('./api', () => {
       getBadges: jest.fn().mockResolvedValue({ data: { badges: [] } }),
       getSkillCategories: jest.fn().mockResolvedValue({ data: { categories: [] } }),
     },
+    schedulingApi: {
+      getUpcoming: jest.fn().mockResolvedValue({ data: { schedules: [] } }),
+      getMySchedules: jest.fn().mockResolvedValue({ data: { schedules: [] } }),
+      getCalendar: jest.fn().mockResolvedValue({ data: { schedules_by_day: {} } }),
+      listSchedules: jest.fn().mockResolvedValue({ data: { schedules: [] } }),
+    },
     authApi: {
       getUser: jest.fn(),
       getToken: jest.fn(),
@@ -184,6 +190,24 @@ describe('App - Authenticated', () => {
     // Verify the progress dashboard is displayed
     await waitFor(() => {
       expect(screen.getByText(/Progress Dashboard/i)).toBeInTheDocument();
+    });
+  });
+
+  test('renders schedule tab for all users', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText(/📅 Schedule/i)).toBeInTheDocument();
+    });
+  });
+
+  test('can navigate to schedule view', async () => {
+    render(<App />);
+    await waitFor(() => {
+      fireEvent.click(screen.getByText(/📅 Schedule/i));
+    });
+    // Verify the schedule manager is displayed
+    await waitFor(() => {
+      expect(screen.getByText(/Exercise Schedule/i)).toBeInTheDocument();
     });
   });
 });
