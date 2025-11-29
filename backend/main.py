@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import uuid
@@ -36,7 +36,12 @@ from scheduling import (
 from topology_editor import (
     topology_editor, NodeType, ConnectionType, ValidationSeverity
 )
+from rate_limiting import (
+    rate_limiter, RateLimitTier, RateLimitRule, ThrottleAction,
+    EndpointRateLimitConfig
+)
 from contextlib import asynccontextmanager
+import asyncio
 
 
 @asynccontextmanager
@@ -59,6 +64,65 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Rate limiting middleware
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Apply rate limiting to all requests."""
+    # Skip rate limiting for certain paths
+    if request.url.path in ["/docs", "/openapi.json", "/redoc"]:
+        return await call_next(request)
+    
+    # Get user info from token if present
+    user_id = None
+    user_role = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        user = get_user_from_token(token)
+        if user:
+            user_id = user.username
+            user_role = user.role
+    
+    # Get client IP
+    ip_address = request.client.host if request.client else "unknown"
+    
+    # Check rate limit
+    result = await rate_limiter.check_rate_limit(
+        endpoint=request.url.path,
+        ip_address=ip_address,
+        user_id=user_id,
+        user_role=user_role
+    )
+    
+    if not result["allowed"]:
+        # Return 429 Too Many Requests
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": result.get("reason", "Rate limit exceeded"),
+                "retry_after_seconds": result.get("retry_after_seconds", 60)
+            },
+            headers={
+                "Retry-After": str(result.get("retry_after_seconds", 60)),
+                "X-RateLimit-Remaining": "0"
+            }
+        )
+    
+    # Add delay if requested
+    if result.get("action") == "delay":
+        await asyncio.sleep(result.get("delay_seconds", 1.0))
+    
+    # Process request
+    response = await call_next(request)
+    
+    # Add rate limit headers
+    remaining = result.get("remaining", {})
+    response.headers["X-RateLimit-Remaining-Minute"] = str(remaining.get("per_minute", 0))
+    response.headers["X-RateLimit-Remaining-Hour"] = str(remaining.get("per_hour", 0))
+    
+    return response
 
 # Path to topology templates
 TOPOLOGIES_DIR = Path(__file__).parent / "topologies"
@@ -2771,3 +2835,279 @@ async def import_topology(
         return topology.to_dict()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============ Rate Limiting Endpoints ============
+
+
+class SetTierLimitsRequest(BaseModel):
+    """Request to set tier rate limits."""
+    requests_per_minute: int
+    requests_per_hour: int
+    requests_per_day: int
+    burst_limit: int = 10
+    burst_window_seconds: int = 10
+    action_on_exceed: str = "reject"
+    delay_seconds: float = 1.0
+
+
+class SetEndpointConfigRequest(BaseModel):
+    """Request to set endpoint rate limit config."""
+    requests_per_minute: Optional[int] = None
+    requests_per_hour: Optional[int] = None
+    burst_limit: Optional[int] = None
+    exempt_tiers: List[str] = []
+    enabled: bool = True
+
+
+class BlockUserRequest(BaseModel):
+    """Request to block a user."""
+    duration_minutes: int = 60
+
+
+@app.get("/rate-limits/status")
+async def get_rate_limit_status(
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Get rate limiting status and configuration."""
+    return {
+        "enabled": rate_limiter.is_enabled(),
+        "tier_rules": rate_limiter.get_tier_rules(),
+        "endpoint_configs": rate_limiter.get_endpoint_configs()
+    }
+
+
+@app.post("/rate-limits/enable")
+async def enable_rate_limiting(
+    enabled: bool = True,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Enable or disable rate limiting globally."""
+    rate_limiter.set_enabled(enabled)
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,  # Using existing action type
+        username=current_user.username,
+        resource_type="rate_limits",
+        details=f"Rate limiting {'enabled' if enabled else 'disabled'}"
+    )
+    return {"enabled": rate_limiter.is_enabled()}
+
+
+@app.get("/rate-limits/statistics")
+async def get_rate_limit_statistics(
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Get rate limiting usage statistics."""
+    return rate_limiter.get_statistics()
+
+
+@app.get("/rate-limits/violations")
+async def get_rate_limit_violations(
+    user_id: Optional[str] = None,
+    limit: int = 100,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> List[dict]:
+    """Get rate limit violation history."""
+    return rate_limiter.get_violations(user_id=user_id, limit=limit)
+
+
+@app.get("/rate-limits/top-users")
+async def get_top_api_users(
+    limit: int = 10,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> List[dict]:
+    """Get top users by API request count."""
+    return rate_limiter.get_top_users(limit)
+
+
+@app.get("/rate-limits/top-endpoints")
+async def get_top_api_endpoints(
+    limit: int = 10,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> List[dict]:
+    """Get top endpoints by request count."""
+    return rate_limiter.get_top_endpoints(limit)
+
+
+@app.get("/rate-limits/users/{user_id}")
+async def get_user_rate_limit_state(
+    user_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Get rate limit state for a specific user."""
+    state = rate_limiter.get_user_state(user_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="User state not found")
+    return state
+
+
+@app.post("/rate-limits/users/{user_id}/reset")
+async def reset_user_rate_limit(
+    user_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Reset rate limit state for a user."""
+    rate_limiter.reset_user_state(user_id)
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="rate_limits",
+        resource_id=user_id,
+        details=f"Reset rate limit state for user: {user_id}"
+    )
+    return {"message": f"Rate limit state reset for user: {user_id}"}
+
+
+@app.post("/rate-limits/users/{user_id}/block")
+async def block_user_rate_limit(
+    user_id: str,
+    request: BlockUserRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Block a user from making API requests."""
+    rate_limiter.block_user(user_id, request.duration_minutes)
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="rate_limits",
+        resource_id=user_id,
+        details=f"Blocked user {user_id} for {request.duration_minutes} minutes"
+    )
+    return {"message": f"User {user_id} blocked for {request.duration_minutes} minutes"}
+
+
+@app.post("/rate-limits/users/{user_id}/unblock")
+async def unblock_user_rate_limit(
+    user_id: str,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Unblock a blocked user."""
+    if rate_limiter.unblock_user(user_id):
+        log_action(
+            action=AuditAction.VIEW_SCENARIO,
+            username=current_user.username,
+            resource_type="rate_limits",
+            resource_id=user_id,
+            details=f"Unblocked user: {user_id}"
+        )
+        return {"message": f"User {user_id} unblocked"}
+    raise HTTPException(status_code=404, detail="User not found or not blocked")
+
+
+@app.put("/rate-limits/tiers/{tier}")
+async def set_tier_rate_limits(
+    tier: str,
+    request: SetTierLimitsRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Set rate limits for a specific tier."""
+    try:
+        tier_enum = RateLimitTier(tier)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid tier: {tier}")
+    
+    try:
+        action = ThrottleAction(request.action_on_exceed)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid action: {request.action_on_exceed}"
+        )
+    
+    rule = RateLimitRule(
+        rule_id=f"{tier}_custom",
+        name=f"{tier.title()} Custom Limit",
+        requests_per_minute=request.requests_per_minute,
+        requests_per_hour=request.requests_per_hour,
+        requests_per_day=request.requests_per_day,
+        burst_limit=request.burst_limit,
+        burst_window_seconds=request.burst_window_seconds,
+        action_on_exceed=action,
+        delay_seconds=request.delay_seconds
+    )
+    
+    rate_limiter.set_tier_limits(tier_enum, rule)
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="rate_limits",
+        details=f"Updated rate limits for tier: {tier}"
+    )
+    
+    return rule.to_dict()
+
+
+@app.put("/rate-limits/endpoints/{endpoint:path}")
+async def set_endpoint_rate_limit(
+    endpoint: str,
+    request: SetEndpointConfigRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Set rate limit configuration for a specific endpoint."""
+    exempt_tiers = []
+    for tier_str in request.exempt_tiers:
+        try:
+            exempt_tiers.append(RateLimitTier(tier_str))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid tier: {tier_str}")
+    
+    config = EndpointRateLimitConfig(
+        endpoint_pattern=f"/{endpoint}",
+        requests_per_minute=request.requests_per_minute,
+        requests_per_hour=request.requests_per_hour,
+        burst_limit=request.burst_limit,
+        exempt_tiers=exempt_tiers,
+        enabled=request.enabled
+    )
+    
+    rate_limiter.set_endpoint_config(f"/{endpoint}", config)
+    
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="rate_limits",
+        details=f"Updated rate limit config for endpoint: /{endpoint}"
+    )
+    
+    return config.to_dict()
+
+
+@app.post("/rate-limits/statistics/reset")
+async def reset_rate_limit_statistics(
+    current_user: User = Depends(require_role([UserRole.ADMIN]))
+) -> dict:
+    """Reset rate limiting statistics."""
+    rate_limiter.reset_statistics()
+    log_action(
+        action=AuditAction.VIEW_SCENARIO,
+        username=current_user.username,
+        resource_type="rate_limits",
+        details="Reset rate limiting statistics"
+    )
+    return {"message": "Statistics reset"}
+
+
+@app.get("/rate-limits/me")
+async def get_my_rate_limit_status(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Get current user's rate limit status."""
+    state = rate_limiter.get_user_state(current_user.username)
+    tier_rules = rate_limiter.get_tier_rules()
+    
+    # Map user role to tier
+    tier_map = {
+        "admin": "admin",
+        "instructor": "instructor",
+        "trainee": "trainee"
+    }
+    user_tier = tier_map.get(current_user.role, "trainee")
+    
+    return {
+        "username": current_user.username,
+        "tier": user_tier,
+        "limits": tier_rules.get(user_tier, {}),
+        "current_state": state
+    }

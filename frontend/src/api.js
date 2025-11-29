@@ -450,4 +450,48 @@ export const auditApi = {
   logs: (params) => api.get('/audit/logs', { params }),
 };
 
+// Rate Limiting API - for API rate limit management
+export const rateLimitApi = {
+  // Status and configuration
+  getStatus: () => api.get('/rate-limits/status'),
+  
+  setEnabled: (enabled) => api.post('/rate-limits/enable', {}, { params: { enabled } }),
+  
+  // Statistics
+  getStatistics: () => api.get('/rate-limits/statistics'),
+  
+  resetStatistics: () => api.post('/rate-limits/statistics/reset'),
+  
+  // Violations
+  getViolations: (userId = null, limit = 100) =>
+    api.get('/rate-limits/violations', { params: { user_id: userId, limit } }),
+  
+  // Top usage
+  getTopUsers: (limit = 10) =>
+    api.get('/rate-limits/top-users', { params: { limit } }),
+  
+  getTopEndpoints: (limit = 10) =>
+    api.get('/rate-limits/top-endpoints', { params: { limit } }),
+  
+  // User management
+  getUserState: (userId) => api.get(`/rate-limits/users/${userId}`),
+  
+  resetUserState: (userId) => api.post(`/rate-limits/users/${userId}/reset`),
+  
+  blockUser: (userId, durationMinutes = 60) =>
+    api.post(`/rate-limits/users/${userId}/block`, { duration_minutes: durationMinutes }),
+  
+  unblockUser: (userId) => api.post(`/rate-limits/users/${userId}/unblock`),
+  
+  // Tier configuration
+  setTierLimits: (tier, limits) => api.put(`/rate-limits/tiers/${tier}`, limits),
+  
+  // Endpoint configuration
+  setEndpointConfig: (endpoint, config) =>
+    api.put(`/rate-limits/endpoints/${endpoint}`, config),
+  
+  // Current user's status
+  getMyStatus: () => api.get('/rate-limits/me'),
+};
+
 export default api;
