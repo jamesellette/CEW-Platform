@@ -1,4 +1,0 @@
-- Branching & Workflow
-- Default branch: main
-- Feature branches: feature/<short-desc> (e.g., feature/scenario-editor)
-- Pull requests must pass CI (lint + tests) before merge.
