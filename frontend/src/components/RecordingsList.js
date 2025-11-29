@@ -170,7 +170,7 @@ export default function RecordingsList({ user }) {
               <div style={cardBodyStyle}>
                 <div style={metaRowStyle}>
                   <span style={metaLabelStyle}>👤 User:</span>
-                  <span style={metaValueStyle}>{recording.username}</span>
+                  <span style={metaValueStyle}>{recording.username || 'Unknown User'}</span>
                 </div>
                 <div style={metaRowStyle}>
                   <span style={metaLabelStyle}>⏱️ Duration:</span>
@@ -190,7 +190,7 @@ export default function RecordingsList({ user }) {
                 <button
                   onClick={() => handlePlayback(recording)}
                   style={playButtonStyle}
-                  disabled={recording.state === 'recording'}
+                  disabled={!['completed', 'stopped'].includes(recording.state)}
                 >
                   ▶️ Play Recording
                 </button>
